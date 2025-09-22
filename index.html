@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Giveaway Dashboard</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body{font-family:system-ui,Segoe UI,Roboto,Arial;padding:16px;background:#f7fafc;color:#111;max-width:1100px;margin:0 auto}
+    h1{font-size:20px}
+    .muted{color:#666;font-size:13px}
+    .card{background:#fff;border-radius:10px;padding:12px;margin:12px 0;box-shadow:0 2px 8px rgba(0,0,0,0.04)}
+    label{width:130px;display:inline-block;font-weight:600}
+    .row{margin:8px 0;display:flex;gap:8px;align-items:center}
+    input,select,textarea{padding:8px;border-radius:6px;border:1px solid #ddd}
+    button.btn{padding:8px 12px;border-radius:8px;border:1px solid #ddd;background:#fff;cursor:pointer}
+    button.primary{background:#16a34a;color:#fff;border:none}
+    .items{margin-top:8px}
+    .itemRow{display:flex;gap:8px;align-items:center;margin-bottom:6px}
+    .small{font-size:13px;color:#555}
+    pre{background:#f8fafc;padding:8px;border-radius:6px;white-space:pre-wrap}
+    .flex{display:flex;gap:8px;align-items:center}
+  </style>
+</head>
+<body>
+  <h1>Giveaway Dashboard</h1>
+  <div id="status" class="muted">Connecting to bot...</div>
+
+  <div class="card">
+    <h3>Create Giveaway</h3>
+    <div class="row"><label>Guild</label><select id="guildSelect"><option value="">-- loading --</option></select></div>
+    <div class="row"><label>Channel</label><select id="channelSelect"><option value="">-- select guild --</option></select></div>
+    <div class="row"><label>All-in-one</label><input id="allInOne" type="checkbox" /></div>
+
+    <div style="margin-top:10px">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
+        <strong>Items (prizes)</strong>
+        <button id="addItem" class="btn">+ Add item</button>
+        <button id="clearItems" class="btn">Clear</button>
+      </div>
+      <div id="itemsContainer" class="items"></div>
+      <div class="small">Each item: prize, winners, duration (minutes), optional required role.</div>
+    </div>
+
+    <div style="margin-top:12px">
+      <button id="createBtn" class="btn primary">Create Giveaway</button>
+      <span id="createMsg" class="muted" style="margin-left:12px"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h3>Giveaways</h3>
+      <div style="display:flex;gap:8px;align-items:center">
+        <label class="small">Show history</label>
+        <input id="showHistory" type="checkbox"/>
+        <button id="refresh" class="btn">Refresh</button>
+      </div>
+    </div>
+    <div id="glist"></div>
+  </div>
+
+  <script>
+    const API_STATUS = '/api/status';
+    const API_GIVE = '/api/giveaways';
+    const API_GW = (g,m)=>`/api/giveaway/${encodeURIComponent(g)}/${encodeURIComponent(m)}`;
+    const API_CHANNELS = g=>`/api/guilds/${encodeURIComponent(g)}/channels`;
+    const API_ROLES = g=>`/api/guilds/${encodeURIComponent(g)}/roles`;
+    const TRONSCAN_BLOCK_URL = 'https://tronscan.org/#/block/';
+
+    const statusEl = document.getElementById('status');
+    const guildSelect = document.getElementById('guildSelect');
+    const channelSelect = document.getElementById('channelSelect');
+    const itemsContainer = document.getElementById('itemsContainer');
+    const addItemBtn = document.getElementById('addItem');
+    const clearItemsBtn = document.getElementById('clearItems');
+    const createBtn = document.getElementById('createBtn');
+    const createMsg = document.getElementById('createMsg');
+    const refreshBtn = document.getElementById('refresh');
+    const glist = document.getElementById('glist');
+    const allInOneCheckbox = document.getElementById('allInOne');
+    const showHistoryCheckbox = document.getElementById('showHistory');
+
+    function safeJson(url, opts){ return fetch(url, opts).then(r => r.text().then(t => { try { return { ok:true, json: JSON.parse(t) }; } catch(e){ return { ok:false, text: t, status: r.status }; } })).catch(e => ({ ok:false, error: e.message })); }
+
+    function mkItemRow(pref = {}) {
+      const div = document.createElement('div'); div.className = 'itemRow';
+      const prize = document.createElement('input'); prize.placeholder = 'Prize'; prize.value = pref.prize || ''; prize.style.width = '240px';
+      const duration = document.createElement('input'); duration.type='number'; duration.min='1'; duration.value = pref.durationMinutes || 5; duration.style.width='90px';
+      const winners = document.createElement('input'); winners.type='number'; winners.min='1'; winners.value = pref.winnersCount || 1; winners.style.width='70px';
+      const roleSel = document.createElement('select'); roleSel.style.width='220px';
+      const roleOpt = document.createElement('option'); roleOpt.value=''; roleOpt.text='(no role required)'; roleSel.appendChild(roleOpt);
+      const remove = document.createElement('button'); remove.className='btn'; remove.textContent='Remove';
+      remove.onclick = ()=> { itemsContainer.removeChild(div); };
+      div.appendChild(prize); div.appendChild(duration); div.appendChild(winners); div.appendChild(roleSel); div.appendChild(remove);
+      div._prize = prize; div._duration = duration; div._winners = winners; div._roleSel = roleSel;
+      const gid = guildSelect.value; if (gid) populateRoleSelect(gid, roleSel, pref.requiredRole);
+      return div;
+    }
+    function addItem(pref){ const r = mkItemRow(pref||{}); itemsContainer.appendChild(r); }
+    function clearItems(){ itemsContainer.innerHTML = ''; }
+
+    async function populateRoleSelect(guildId, selectEl, selectedRole) {
+      selectEl.innerHTML = ''; const opt0 = document.createElement('option'); opt0.value=''; opt0.text='(no role required)'; selectEl.appendChild(opt0);
+      const r = await safeJson(API_ROLES(guildId));
+      if (!r.ok) { const o = document.createElement('option'); o.text='(roles load failed)'; selectEl.appendChild(o); return; }
+      const roles = r.json.roles || [];
+      roles.forEach(role => { const o = document.createElement('option'); o.value=role.id; o.text=role.name; if (selectedRole && selectedRole === role.id) o.selected = true; selectEl.appendChild(o); });
+    }
+
+    addItemBtn.addEventListener('click', ()=> addItem());
+    clearItemsBtn.addEventListener('click', clearItems);
+
+    guildSelect.addEventListener('change', async ()=>{
+      const gid = guildSelect.value; channelSelect.innerHTML = '';
+      if (!gid) { channelSelect.innerHTML = '<option value="">-- select guild --</option>'; return; }
+      const r = await safeJson(API_CHANNELS(gid));
+      if (!r.ok) { channelSelect.innerHTML = '<option value="">(failed)</option>'; return; }
+      const chs = r.json.channels || []; channelSelect.innerHTML = '';
+      chs.forEach(c => { const o = document.createElement('option'); o.value=c.id; o.text = c.name + (c.canSend === false ? ' (bot cannot send)' : ''); channelSelect.appendChild(o); });
+      const itemRows = itemsContainer.querySelectorAll('.itemRow');
+      for (const row of itemRows) populateRoleSelect(gid, row._roleSel);
+    });
+
+    createBtn.addEventListener('click', async ()=>{
+      createMsg.textContent = '';
+      const gid = guildSelect.value; const cid = channelSelect.value;
+      if (!gid || !cid) return createMsg.textContent = 'Select guild and channel';
+      const rows = Array.from(itemsContainer.querySelectorAll('.itemRow'));
+      if (!rows.length) return createMsg.textContent = 'Add at least one item';
+      const items = rows.map(r => ({ prize: r._prize.value.trim() || '(no prize)', durationMinutes: Number(r._duration.value) || 5, winnersCount: Number(r._winners.value) || 1, requiredRole: r._roleSel.value || null }));
+      const body = { guildId: gid, channelId: cid, hostId: null, isAllInOne: !!allInOneCheckbox.checked, items };
+      createBtn.disabled = true; createMsg.textContent = 'Creating...';
+      try {
+        const res = await fetch(API_GIVE, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) });
+        const txt = await res.text(); let json;
+        try { json = JSON.parse(txt); } catch(e){ throw new Error('Server returned non-json: ' + txt.slice(0,200)); }
+        if (!res.ok) throw new Error(json.error || 'create failed');
+        createMsg.textContent = 'Created: ' + json.giveaway.messageId;
+        clearItems(); await loadGiveaways();
+      } catch(e) { createMsg.textContent = 'Error: ' + e.message; } finally { createBtn.disabled = false; setTimeout(()=> createMsg.textContent = '', 6000); }
+    });
+
+    refreshBtn.addEventListener('click', loadGiveaways);
+
+    async function loadStatusAndInit(){
+      const s = await safeJson(API_STATUS);
+      if (!s.ok) { statusEl.textContent = 'Status error'; return; }
+      const data = s.json; statusEl.textContent = `Bot: ${data.botTag || '(not ready)'}`;
+      guildSelect.innerHTML = ''; const ph = document.createElement('option'); ph.value=''; ph.text='-- select guild --'; guildSelect.appendChild(ph);
+      (data.guilds||[]).forEach(g => { const o = document.createElement('option'); o.value=g.id; o.text=g.name; guildSelect.appendChild(o); });
+      clearItems(); addItem();
+      await loadGiveaways();
+    }
+
+    async function loadGiveaways(){
+      const r = await safeJson(API_GIVE);
+      if (!r.ok) { glist.innerHTML = '<div class="muted">Failed to load giveaways</div>'; return; }
+      const gws = r.json.giveaways || [];
+      renderGiveawayList(gws);
+    }
+
+    function fmtCountdown(ms){
+      if (ms<=0) return '00:00:00';
+      const s = Math.floor(ms/1000);
+      const h = Math.floor(s/3600);
+      const m = Math.floor((s%3600)/60);
+      const sec = s%60;
+      return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+    }
+
+    function renderGiveawayList(gws){
+      glist.innerHTML = '';
+      const showHistory = !!showHistoryCheckbox.checked;
+      const now = Date.now();
+      const active = gws.filter(g => g.items.some(it => !it.ended));
+      const ended = gws.filter(g => g.items.every(it => it.ended));
+
+      function mkGwCard(gw){
+        const c = document.createElement('div'); c.className='card';
+        const head = document.createElement('div'); head.style.display='flex'; head.style.justifyContent='space-between';
+        const left = document.createElement('div');
+        const title = document.createElement('div'); title.innerHTML = `<strong>Giveaway</strong> • id: <code>${gw.id}</code>`;
+        const serverKey = document.createElement('div'); serverKey.className='small'; serverKey.textContent = `Server Key: ${gw.serverPublicKey}`;
+        left.appendChild(title); left.appendChild(serverKey);
+        const right = document.createElement('div');
+        const openBtn = document.createElement('button'); openBtn.className='btn'; openBtn.textContent='Open in Discord';
+        openBtn.onclick = ()=> alert(`Guild: ${gw.guildId}\nChannel: ${gw.channelId}\nMessage: ${gw.messageId}`);
+        const verifyBtn = document.createElement('button'); verifyBtn.className='btn'; verifyBtn.textContent='Verify'; verifyBtn.style.marginLeft='8px';
+        verifyBtn.onclick = async ()=>{
+          const r = await safeJson(API_GW(gw.guildId, gw.messageId));
+          if (!r.ok) return alert('Failed to load: ' + (r.error || r.text));
+          const payload = r.json.giveaway;
+          let out = `Giveaway ${payload.id}\nServerKey: ${payload.serverPublicKey}\nHost: ${payload.hostId}\n\n`;
+          for (const it of payload.items) {
+            out += `Prize: ${it.prize}\nEnded: ${it.ended}\nWinners: ${it.winnersCount}\nEntries: ${it.entries.length}\nClientBlock: ${it.clientBlockNum || '(n/a)'}\n\n`;
+            if (it.hmacs && Object.keys(it.hmacs).length) {
+              const arr = Object.entries(it.hmacs).map(([uid,info])=>({uid,hmac:info.hmac,float:info.float}));
+              arr.sort((a,b)=>b.float-a.float);
+              out += 'Top entrants:\n';
+              for (let i=0;i<Math.min(arr.length,8);i++) { const t = arr[i]; out += `${i+1}. ${t.uid} — ${t.float.toFixed(12)}\n`; }
+            }
+            out += '\n---\n';
+          }
+          const w = window.open('', '_blank', 'width=700,height=600'); w.document.title = 'Verify '+payload.id; const pre = w.document.createElement('pre'); pre.textContent = out; w.document.body.appendChild(pre);
+        };
+        right.appendChild(openBtn); right.appendChild(verifyBtn);
+        head.appendChild(left); head.appendChild(right);
+        c.appendChild(head);
+
+        for (const it of gw.items) {
+          const row = document.createElement('div'); row.style.display='flex'; row.style.justifyContent='space-between'; row.style.alignItems='center'; row.style.marginTop='8px';
+          const left = document.createElement('div');
+          const prize = document.createElement('div'); prize.innerHTML = `<strong>${it.prize}</strong> ${it.ended ? '<span style="color:#b91c1c">(ENDED)</span>' : ''} ${it.awaitingClientSeed ? '<em>(Awaiting block seed)</em>' : ''}`;
+          const meta = document.createElement('div'); meta.className='small'; meta.textContent = `Winners: ${it.winnersCount} • Entries: ${it.entries.length}`;
+          left.appendChild(prize); left.appendChild(meta);
+
+          const right = document.createElement('div');
+          const countdown = document.createElement('div'); countdown.className='small'; countdown.dataset.endsAt = it.endsAt || '';
+          const localDate = it.endsAt ? new Date(it.endsAt) : null;
+          countdown.innerHTML = localDate ? `${localDate.toLocaleString(undefined, { timeZoneName:'short' })} — ${fmtCountdown((it.endsAt||0) - Date.now())}` : 'N/A';
+          const joinBtn = document.createElement('button'); joinBtn.className='btn'; joinBtn.textContent = 'Join';
+          joinBtn.style.marginLeft = '8px';
+          joinBtn.onclick = ()=> alert('To join, press the "Join" button on the giveaway message in Discord (messageId: ' + gw.messageId + ')');
+
+          right.appendChild(countdown); right.appendChild(joinBtn);
+          row.appendChild(left); row.appendChild(right);
+          c.appendChild(row);
+        }
+
+        return c;
+      }
+
+      if (active.length === 0) glist.innerHTML = '<div class="muted">No active giveaways</div>';
+      else active.forEach(gw => glist.appendChild(mkGwCard(gw)));
+      if (showHistory) {
+        const histDiv = document.createElement('div'); histDiv.style.marginTop='12px'; histDiv.innerHTML = '<h4>History</h4>';
+        if (ended.length === 0) histDiv.innerHTML += '<div class="muted">No ended giveaways</div>';
+        else ended.forEach(gw => histDiv.appendChild(mkGwCard(gw)));
+        glist.appendChild(histDiv);
+      }
+    }
+
+    setInterval(()=> {
+      const now = Date.now();
+      document.querySelectorAll('[data-ends-at]').forEach(el=>{
+        const val = el.getAttribute('data-ends-at');
+        if (!val) return;
+        const ends = Number(val);
+        const localDate = new Date(ends);
+        const remaining = ends - now;
+        el.innerHTML = (isFinite(ends) ? `${localDate.toLocaleString(undefined, { timeZoneName:'short' })} — ${fmtCountdown(remaining)}` : 'N/A');
+      });
+    }, 1000);
+
+    loadStatusAndInit();
+    setInterval(loadGiveaways, 3000);
+  </script>
+</body>
+</html>
