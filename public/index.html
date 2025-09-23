@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Giveaway Dashboard — Active only (datetime)</title>
+<style>
+  :root{--bg:#ffffff;--text:#111827;--muted:#6b7280;--accent:#06b6d4;--danger:#ef4444;--border:#e6e9ee}
+  html,body{height:100%;margin:0;font-family:Inter,Roboto,Arial,sans-serif;background:var(--bg);color:var(--text)}
+  .wrap{max-width:1100px;margin:18px auto;padding:14px}
+  h1{margin:0 0 6px 0;font-size:20px}
+  .muted{color:var(--muted);font-size:13px}
+  .card{background:#fff;border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  input,select,textarea,button{font-family:inherit;font-size:14px}
+  input,select,textarea{padding:8px;border:1px solid var(--border);border-radius:6px}
+  input[type="datetime-local"]{padding:6px 8px}
+  textarea{min-height:70px;resize:vertical}
+  button{cursor:pointer;border-radius:6px;padding:8px 10px;border:0}
+  button.primary{background:var(--accent);color:#fff}
+  button.ghost{background:transparent;border:1px solid var(--border);color:var(--muted)}
+  .list{display:flex;flex-direction:column;gap:10px}
+  .gw{border:1px solid var(--border);padding:10px;border-radius:8px;background:#fff;display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+  .gw .left{flex:1}
+  .meta{font-family:monospace;color:var(--muted);font-size:13px}
+  .items{margin-top:8px;display:flex;flex-direction:column;gap:8px}
+  .item{display:flex;justify-content:space-between;align-items:center;padding:8px;border-radius:6px;background:#fbfdff;border:1px solid var(--border)}
+  .small{font-size:13px;color:var(--muted)}
+  .status{padding:6px 8px;border-radius:999px;font-weight:700;font-size:12px}
+  .s-countdown{background:#ecfeff;color:#064e52}
+  .s-fetch{background:#fff7ed;color:#92400e}
+  .s-ended{background:#ecfdf5;color:#166534}
+  pre.log{background:#f3f6f8;padding:10px;border-radius:6px;max-height:300px;overflow:auto;border:1px solid var(--border)}
+  footer{color:var(--muted);font-size:13px;text-align:center;margin-top:8px}
+  @media (max-width:900px){ .row{flex-direction:column;align-items:stretch} }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Giveaway Dashboard</h1>
+    <div class="muted">Hiển thị <strong>active giveaways</strong> (mặc định ẩn history). Nhấn <strong>Refresh</strong> để load dữ liệu mới.</div>
+
+    <!-- control row -->
+    <div class="card">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <label class="small">Server:</label>
+          <select id="guildSelect"><option>Loading servers...</option></select>
+          <label class="small">Channel:</label>
+          <select id="channelSelect"><option>— select server —</option></select>
+          <label class="small">Role (optional):</label>
+          <select id="roleSelect"><option>— none —</option></select>
+          <label style="display:flex;align-items:center;gap:6px"><input id="aio" type="checkbox" /> All-in-one</label>
+        </div>
+
+        <div style="display:flex;gap:8px;align-items:center">
+          <label style="display:flex;align-items:center;gap:6px" title="Mặc định ẩn lịch sử">Show history<input id="showHistory" type="checkbox" style="margin-left:6px" /></label>
+          <button id="refreshBtn" class="ghost">Refresh</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- item builder (simplified boxes) -->
+    <div class="card">
+      <div class="small">Add item</div>
+      <div style="margin-top:8px" class="row">
+        <input id="itemPrize" placeholder="Prize (e.g. Nitro, Token...)" style="min-width:220px" />
+        <!-- datetime-local for endsAt -->
+        <input id="itemEndsAt" type="datetime-local" placeholder="End date/time" style="width:220px" />
+        <input id="itemWinners" type="number" placeholder="Winners" style="width:100px" />
+        <select id="itemRequiredRole" style="min-width:200px"><option value="">Required role (optional)</option></select>
+        <button id="addItemBtn" class="ghost">Add item</button>
+      </div>
+
+      <div style="margin-top:10px">
+        <div class="small">Items to create</div>
+        <div id="pendingItems" style="margin-top:8px"></div>
+        <div style="margin-top:8px;display:flex;gap:8px">
+          <button id="createBtn" class="primary">Create Giveaway</button>
+          <button id="clearItemsBtn" class="ghost">Clear items</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- giveaways (active only by default) -->
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div class="small">Giveaways (active only)</div>
+          <div class="muted">Hiển thị các giveaway còn prize chưa ended. Bật "Show history" để xem lịch sử.</div>
+        </div>
+        <div class="small">Manual refresh only</div>
+      </div>
+
+      <div id="listArea" class="list" style="margin-top:10px">
+        <div class="small muted">Press Refresh to load active giveaways.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="small">Console</div>
+      <pre id="log" class="log">Ready.</pre>
+    </div>
+
+    <footer>Giao diện chỉ load dữ liệu khi bạn nhấn Refresh. Reroll sẽ gửi `{ reset: true }` tới backend để xóa clientSeed và re-fetch block.</footer>
+  </div>
+
+<script>
+/* Updated dashboard (datetime-local):
+   - choose exact end date/time for each item
+   - frontend sends items[].endsAt (millis)
+   - manual Refresh only
+*/
+
+(function(){
+  const originBase = location.origin; // backend same origin
+
+  // DOM
+  const guildSelect = document.getElementById('guildSelect');
+  const channelSelect = document.getElementById('channelSelect');
+  const roleSelect = document.getElementById('roleSelect');
+  const aioEl = document.getElementById('aio');
+
+  const itemPrize = document.getElementById('itemPrize');
+  const itemEndsAt = document.getElementById('itemEndsAt'); // datetime-local input
+  const itemWinners = document.getElementById('itemWinners');
+  const itemRequiredRole = document.getElementById('itemRequiredRole');
+  const addItemBtn = document.getElementById('addItemBtn');
+  const pendingItemsDiv = document.getElementById('pendingItems');
+  const createBtn = document.getElementById('createBtn');
+  const clearItemsBtn = document.getElementById('clearItemsBtn');
+
+  const refreshBtn = document.getElementById('refreshBtn');
+  const showHistoryCheckbox = document.getElementById('showHistory');
+
+  const listArea = document.getElementById('listArea');
+  const logEl = document.getElementById('log');
+
+  let pendingItems = [];
+  let giveawaysCache = [];
+
+  function log(...args){
+    const t = new Date().toLocaleString();
+    logEl.textContent = '['+t+'] ' + args.join(' ') + "\\n" + logEl.textContent;
+    console.log(...args);
+  }
+
+  async function apiGET(path){
+    const r = await fetch(originBase + path);
+    if (!r.ok) throw new Error('status ' + r.status);
+    return r.json();
+  }
+  async function apiPOST(path, body){
+    const r = await fetch(originBase + path, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) });
+    if (!r.ok) {
+      const text = await r.text().catch(()=>null);
+      throw new Error('status ' + r.status + ' ' + (text || ''));
+    }
+    return r.json().catch(()=>null);
+  }
+  async function apiDELETE(path){
+    const r = await fetch(originBase + path, { method:'DELETE' });
+    if (!r.ok) {
+      const text = await r.text().catch(()=>null);
+      throw new Error('status ' + r.status + ' ' + (text || ''));
+    }
+    return r.json().catch(()=>null);
+  }
+
+  // load servers once on init
+  async function loadStatusAndServers(){
+    try {
+      const s = await apiGET('/api/status');
+      const guilds = s.guilds || [];
+      guildSelect.innerHTML = '';
+      if (!guilds.length) {
+        guildSelect.innerHTML = '<option value="">(no guilds)</option>';
+        channelSelect.innerHTML = '<option value="">-</option>';
+        roleSelect.innerHTML = '<option value="">-</option>';
+        itemRequiredRole.innerHTML = '<option value="">-</option>';
+        return;
+      }
+      guilds.forEach(g => {
+        const o = document.createElement('option');
+        o.value = g.id;
+        o.textContent = g.name || g.id;
+        guildSelect.appendChild(o);
+      });
+      guildSelect.selectedIndex = 0;
+      await onGuildChange();
+      log('Loaded servers from /api/status');
+    } catch (err) {
+      log('loadStatus error', err.message || err);
+      guildSelect.innerHTML = '<option value="">(error)</option>';
+    }
+  }
+
+  async function onGuildChange(){
+    const gid = guildSelect.value;
+    if (!gid) return;
+    channelSelect.innerHTML = '<option>Loading...</option>';
+    roleSelect.innerHTML = '<option>Loading...</option>';
+    itemRequiredRole.innerHTML = '<option>Loading...</option>';
+    try {
+      const ch = await apiGET('/api/guilds/' + encodeURIComponent(gid) + '/channels');
+      channelSelect.innerHTML = '<option value="">-- select channel --</option>';
+      (ch.channels||[]).forEach(c => {
+        const o = document.createElement('option'); o.value = c.id; o.textContent = c.name + ' (' + c.id + ')'; channelSelect.appendChild(o);
+      });
+    } catch (err) {
+      log('fetch channels error', err.message || err);
+      channelSelect.innerHTML = '<option value="">(error)</option>';
+    }
+    try {
+      const r = await apiGET('/api/guilds/' + encodeURIComponent(gid) + '/roles');
+      roleSelect.innerHTML = '<option value="">-- none --</option>';
+      itemRequiredRole.innerHTML = '<option value="">Required role (optional)</option>';
+      (r.roles||[]).forEach(rr => {
+        const o = document.createElement('option'); o.value = rr.id; o.textContent = rr.name + ' (' + rr.id + ')'; roleSelect.appendChild(o);
+        const o2 = document.createElement('option'); o2.value = rr.id; o2.textContent = rr.name + ' (' + rr.id + ')'; itemRequiredRole.appendChild(o2);
+      });
+    } catch (err) {
+      log('fetch roles error', err.message || err);
+      roleSelect.innerHTML = '<option value="">(error)</option>';
+      itemRequiredRole.innerHTML = '<option value="">(error)</option>';
+    }
+  }
+
+  guildSelect.addEventListener('change', onGuildChange);
+  refreshBtn.addEventListener('click', loadGiveaways);
+
+  // pending items builder (uses endsAt datetime-local)
+  function renderPendingItems(){
+    pendingItemsDiv.innerHTML = '';
+    if (!pendingItems.length) { pendingItemsDiv.innerHTML = '<div class="small muted">No items added</div>'; return; }
+    pendingItems.forEach((it, idx) => {
+      const d = document.createElement('div');
+      d.className = 'item';
+      const endsText = it.endsAt ? (new Date(it.endsAt)).toLocaleString() : '(no end)';
+      d.innerHTML = `<div><strong>${escapeHtml(it.prize)}</strong><div class="meta">Ends: ${escapeHtml(endsText)} • Winners: ${it.winnersCount} • Role: ${it.requiredRole||'(none)'}</div></div>`;
+      const right = document.createElement('div');
+      const del = document.createElement('button'); del.className = 'ghost'; del.textContent = 'Remove';
+      del.onclick = ()=> { pendingItems.splice(idx,1); renderPendingItems(); };
+      right.appendChild(del);
+      d.appendChild(right);
+      pendingItemsDiv.appendChild(d);
+    });
+  }
+
+  addItemBtn.addEventListener('click', ()=>{
+    const prize = (itemPrize.value||'').trim();
+    const endsVal = itemEndsAt.value; // datetime-local string like "2025-09-21T12:34"
+    const winners = Number(itemWinners.value) || 1;
+    const req = itemRequiredRole.value || null;
+    if (!prize) { alert('Enter prize'); return; }
+    if (!endsVal) { alert('Select end date/time'); return; }
+    const millis = new Date(endsVal).getTime();
+    if (isNaN(millis) || millis <= Date.now()) { if(!confirm('Selected time is in the past or invalid. Create anyway?')) return; }
+    pendingItems.push({ prize, endsAt: millis, winnersCount: winners, requiredRole: req });
+    itemPrize.value = ''; itemEndsAt.value=''; itemWinners.value='1'; itemRequiredRole.value='';
+    renderPendingItems();
+  });
+  clearItemsBtn.addEventListener('click', ()=> { pendingItems = []; renderPendingItems(); });
+
+  createBtn.addEventListener('click', async ()=>{
+    const gid = guildSelect.value;
+    const ch = channelSelect.value;
+    if (!gid || !ch) { alert('Select server and channel'); return; }
+    if (!pendingItems.length) { alert('Add at least one item'); return; }
+    const items = pendingItems.map(it => ({ prize: it.prize, endsAt: it.endsAt, winnersCount: it.winnersCount, requiredRole: it.requiredRole }));
+    const body = { guildId: gid, channelId: ch, hostId: null, isAllInOne: !!aioEl.checked, items };
+    try {
+      const res = await apiPOST('/api/giveaways', body);
+      log('Created giveaway', res && res.giveaway && res.giveaway.id);
+      pendingItems = []; renderPendingItems();
+      alert('Giveaway created. Press Refresh to see it in list.');
+    } catch (err) {
+      log('create error', err.message || err);
+      alert('Create failed (see console).');
+    }
+  });
+
+  // load giveaways (manual only)
+  async function loadGiveaways(){
+    listArea.innerHTML = '<div class="small">Loading giveaways...</div>';
+    try {
+      const res = await apiGET('/api/giveaways');
+      giveawaysCache = res.giveaways || [];
+      renderGiveaways(giveawaysCache);
+      log('Loaded', giveawaysCache.length, 'giveaways');
+    } catch (err) {
+      listArea.innerHTML = '<div class="small">Failed to load giveaways</div>';
+      log('loadGiveaways error', err.message || err);
+    }
+  }
+
+  function renderGiveaways(list){
+    const active = [];
+    const history = [];
+    (list || []).forEach(gw => {
+      const hasActiveItem = (gw.items || []).some(it => !it.ended);
+      if (hasActiveItem) active.push(gw); else history.push(gw);
+    });
+
+    const showHistory = !!showHistoryCheckbox.checked;
+
+    if (!active.length && !showHistory) {
+      listArea.innerHTML = '<div class="small muted">No active giveaways. Toggle "Show history" to view past giveaways.</div>';
+      return;
+    }
+
+    listArea.innerHTML = '';
+
+    if (active.length) {
+      const head = document.createElement('div'); head.className = 'small'; head.textContent = 'Active giveaways';
+      listArea.appendChild(head);
+      active.forEach(gw => listArea.appendChild(renderOneGiveawayElement(gw)));
+    } else {
+      const none = document.createElement('div'); none.className = 'small muted'; none.textContent = 'No active giveaways';
+      listArea.appendChild(none);
+    }
+
+    if (showHistory) {
+      const sep = document.createElement('hr'); sep.style.border = 'none'; sep.style.height = '10px';
+      listArea.appendChild(sep);
+      const head2 = document.createElement('div'); head2.className = 'small'; head2.textContent = 'History (ended giveaways)';
+      listArea.appendChild(head2);
+      if (history.length) history.forEach(gw => listArea.appendChild(renderOneGiveawayElement(gw)));
+      else { const none2 = document.createElement('div'); none2.className = 'small muted'; none2.textContent = 'No past giveaways'; listArea.appendChild(none2); }
+    }
+  }
+
+  function renderOneGiveawayElement(gw){
+    const gwEl = document.createElement('div'); gwEl.className = 'gw';
+    const left = document.createElement('div'); left.className = 'left';
+    left.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center">
+      <div><strong>${escapeHtml(gw.id)}</strong><div class="meta">${escapeHtml(gw.guildId||'')} • ${escapeHtml(gw.channelId||'')}</div></div>
+      <div class="meta">Key: <span style="font-family:monospace">${escapeHtml(gw.serverPublicKey||'')}</span></div>
+    </div>`;
+
+    const itemsWrap = document.createElement('div'); itemsWrap.className = 'items';
+    (gw.items || []).forEach(it => {
+      const itDiv = document.createElement('div'); itDiv.className = 'item';
+      const leftPart = document.createElement('div');
+      leftPart.innerHTML = `<div><strong>${escapeHtml(it.prize)}</strong> <div class="meta">(${escapeHtml(it.id)})</div></div>`;
+      const ends = it.endsAt ? new Date(it.endsAt).toLocaleString() : 'N/A';
+      const statusId = 'st_' + gw.id + '_' + it.id;
+      leftPart.innerHTML += `<div class="small">Ends: <span class="meta">${ends}</span> • Entries: <span class="meta">${(it.entries||[]).length}</span> • <span id="${statusId}" class="status ${statusClass(it)}">${it.ended ? 'ENDED' : (it.awaitingClientSeed ? 'FETCHING' : 'COUNTDOWN')}</span></div>`;
+
+      const rightPart = document.createElement('div');
+      rightPart.style.display='flex'; rightPart.style.gap='8px';
+      const rerollBtn = document.createElement('button'); rerollBtn.className='btn reroll'; rerollBtn.textContent='Reroll';
+      rerollBtn.onclick = ()=> onReroll(gw.id, it.id);
+      const forceBtn = document.createElement('button'); forceBtn.className='btn forceend'; forceBtn.textContent='Force End';
+      forceBtn.onclick = ()=> onForceEnd(gw.id);
+      const delBtn = document.createElement('button'); delBtn.className='btn delete'; delBtn.textContent='Delete';
+      delBtn.onclick = ()=> onDelete(gw.id);
+      rightPart.appendChild(rerollBtn); rightPart.appendChild(forceBtn); rightPart.appendChild(delBtn);
+
+      itDiv.appendChild(leftPart); itDiv.appendChild(rightPart);
+      itemsWrap.appendChild(itDiv);
+    });
+
+    left.appendChild(itemsWrap);
+    gwEl.appendChild(left);
+
+    const right = document.createElement('div'); right.style.display='flex'; right.style.flexDirection='column'; right.style.gap='8px';
+    const refreshBtnLocal = document.createElement('button'); refreshBtnLocal.className='ghost'; refreshBtnLocal.textContent='Refresh'; refreshBtnLocal.onclick = ()=> loadGiveaways();
+    right.appendChild(refreshBtnLocal);
+    gwEl.appendChild(right);
+
+    return gwEl;
+  }
+
+  function statusClass(item){
+    if (item.ended) return 's-ended';
+    if (item.awaitingClientSeed) return 's-fetch';
+    return 's-countdown';
+  }
+
+  // live update for visible statuses
+  let countdownTimer = null;
+  function startCountdownLoop(){
+    if (countdownTimer) return;
+    countdownTimer = setInterval(()=> {
+      giveawaysCache.forEach(gw => {
+        (gw.items||[]).forEach(it => {
+          const id = 'st_' + gw.id + '_' + it.id;
+          const el = document.getElementById(id);
+          if (!el) return;
+          if (it.ended) { el.textContent = 'ENDED'; el.className = 'status s-ended'; return; }
+          if (it.awaitingClientSeed) { el.textContent = 'FETCHING'; el.className = 'status s-fetch'; return; }
+          const rem = (it.endsAt || 0) - Date.now();
+          if (rem <= 0) { el.textContent = 'Finalizing'; el.className = 'status s-fetch'; return; }
+          el.textContent = formatRemaining(rem); el.className = 'status s-countdown';
+        });
+      });
+    }, 1000);
+  }
+
+  function formatRemaining(ms){
+    if (ms<=0) return '0s';
+    const s=Math.floor(ms/1000), d=Math.floor(s/86400), h=Math.floor((s%86400)/3600), m=Math.floor((s%3600)/60), sec=s%60;
+    if (d>0) return `${d}d ${h}h ${m}m`; if (h>0) return `${h}h ${m}m ${sec}s`; if (m>0) return `${m}m ${sec}s`; return `${sec}s`;
+  }
+
+  // actions
+  async function onReroll(gwId, itemId){
+    if (!confirm('Confirm Reroll: this will reset clientSeed & client block for this prize, and re-fetch new block per provably-fair.')) return;
+    try {
+      const res = await apiPOST('/api/giveaways/' + encodeURIComponent(gwId) + '/reroll', { itemId, reset: true });
+      log('Reroll initiated', res);
+      alert('Reroll requested. Press Refresh after some seconds to see result.');
+    } catch (err) {
+      log('Reroll error', err.message || err);
+      alert('Reroll failed (see console)');
+    }
+  }
+
+  async function onForceEnd(gwId){
+    if (!confirm('Force end giveaway?')) return;
+    try {
+      const res = await apiPOST('/api/giveaways/' + encodeURIComponent(gwId) + '/force-end', {});
+      log('Force-end result', res);
+      alert('Force-end requested. Press Refresh to update list.');
+    } catch (err) {
+      log('Force-end error', err.message || err);
+      alert('Force-end failed (see console)');
+    }
+  }
+
+  async function onDelete(gwId){
+    if (!confirm('Delete giveaway? This will remove it from storage and attempt to delete message.')) return;
+    try {
+      const res = await apiDELETE('/api/giveaways/' + encodeURIComponent(gwId));
+      log('Delete result', res);
+      alert('Delete done. Press Refresh to update list.');
+    } catch (err) {
+      log('Delete error', err.message || err);
+      alert('Delete failed (see console)');
+    }
+  }
+
+  // helpers
+  function escapeHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  // init
+  (async function init(){
+    await loadStatusAndServers();
+    startCountdownLoop();
+    log('Ready. Press Refresh to load giveaways.');
+  })();
+
+})();
+</script>
+</body>
+</html>
