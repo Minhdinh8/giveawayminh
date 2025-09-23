@@ -1,15 +1,7 @@
-// index.js
-// Full Discord giveaway bot + Express dashboard API with Provably-Fair using TRX block + serverPublicKey
-// Features:
-// - persistence to pf_data.json
-// - schedule item end, worker queue to poll target block (one prize at a time, 10s polling)
-// - endpoints: GET /api/status, /api/giveaways, GET /api/guilds/:guildId/channels, GET /api/guilds/:guildId/roles
-// - create: POST /api/giveaways
-// - reroll: POST /api/giveaways/:gwId/reroll { itemId, reset }
-// - force-end: POST /api/giveaways/:gwId/force-end
-// - delete: DELETE /api/giveaways/:gwId
-// - interactions: Button Join / Verify / Details (ephemeral). No slash commands.
-// Env: BOT_TOKEN (required), TRON_GRID_API (optional), PORT (optional), ADMIN_SECRET (optional)
+// index.js - Full PF Giveaway bot + Express dashboard API
+// Requirements: BOT_TOKEN in .env
+// Optional env: TRON_GRID_API (default https://api.trongrid.io), PORT, ADMIN_SECRET
+// npm i discord.js node-fetch
 
 require('dotenv').config();
 const fs = require('fs');
@@ -39,12 +31,12 @@ const PORT = Number(process.env.PORT || 3000);
 const TRON_GRID_API = (process.env.TRON_GRID_API || 'https://api.trongrid.io').replace(/\/$/, '');
 const ADMIN_SECRET = process.env.ADMIN_SECRET || null;
 
-// Colors for embeds
-const COLOR_COUNTDOWN = 0x111827; // dark
-const COLOR_FETCHING  = 0xf59e0b;
-const COLOR_ENDED     = 0x16a34a;
+// Embed colors
+const COLOR_COUNTDOWN = 0x111827; // neutral/dark
+const COLOR_FETCHING  = 0xf59e0b; // amber
+const COLOR_ENDED     = 0x16a34a; // green
 
-// ----------------- Persistence -----------------
+// -------------------- Persistence --------------------
 const DEFAULT_DATA = { guilds: {}, requiredJoinRoleByGuild: {}, giveaways: [] };
 
 function readData() {
@@ -60,7 +52,7 @@ function readData() {
     obj.giveaways = Array.isArray(obj.giveaways) ? obj.giveaways : [];
     return obj;
   } catch (err) {
-    console.error('readData error, recreating file:', err);
+    console.error('readData error - recreating data file', err);
     fs.writeFileSync(DATA_PATH, JSON.stringify(DEFAULT_DATA, null, 2));
     return JSON.parse(JSON.stringify(DEFAULT_DATA));
   }
@@ -71,23 +63,25 @@ function writeData(data) {
   fs.renameSync(DATA_PATH + '.tmp', DATA_PATH);
 }
 
-// ----------------- Utilities -----------------
+// -------------------- Utilities --------------------
 function random64() {
   const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
   let s = '';
   for (let i = 0; i < 64; i++) s += chars[Math.floor(Math.random() * chars.length)];
   return s;
 }
-function hmacSha512Hex(key, msg) { return crypto.createHmac('sha512', key).update(msg).digest('hex'); }
+function hmacSha512Hex(key, msg) {
+  return crypto.createHmac('sha512', key).update(msg).digest('hex');
+}
 function hmacHexToFloat(hex) {
-  // take first 13 hex chars (52 bits) -> integer / 16^13
+  // first 13 hex chars -> 52 bits -> float in [0,1)
   const first = hex.slice(0, 13);
   const num = parseInt(first, 16);
   return num / Math.pow(16, first.length);
 }
 function delay(ms) { return new Promise(res => setTimeout(res, ms)); }
 
-// ----------------- TRON helpers -----------------
+// -------------------- TRON helpers --------------------
 async function getNowBlockRaw() {
   if (!fetchFunc) return null;
   try {
@@ -96,7 +90,7 @@ async function getNowBlockRaw() {
     if (!r.ok) throw new Error('status ' + r.status);
     return await r.json();
   } catch (e) {
-    console.warn('getNowBlockRaw failed:', e.message || e);
+    console.warn('getNowBlockRaw failed:', e && (e.message || e));
     return null;
   }
 }
@@ -117,12 +111,12 @@ async function getBlockByNumber(num) {
     if (!r.ok) throw new Error('status ' + r.status);
     return await r.json();
   } catch (e) {
-    console.warn('getBlockByNumber failed:', e.message || e);
+    console.warn('getBlockByNumber failed:', e && (e.message || e));
     return null;
   }
 }
 
-// ----------------- Model helpers -----------------
+// -------------------- Models --------------------
 function newGiveawayObj({ guildId, channelId, hostId, isAllInOne, items }) {
   return {
     id: 'gw_' + Date.now() + '_' + Math.floor(Math.random() * 9000 + 1000),
@@ -180,7 +174,7 @@ function listGiveaways() {
   return d.giveaways || [];
 }
 
-// ----------------- Worker queue for awaiting prizes -----------------
+// -------------------- Worker queue for awaiting prizes --------------------
 let processingAwaitingQueue = false;
 
 async function enqueueAwaitingItem(gwId, itemId) {
@@ -199,7 +193,7 @@ async function getNextAwaitingItem() {
   for (const gw of d.giveaways || []) {
     for (const it of gw.items || []) {
       if (it.awaitingClientSeed && !it.ended) {
-        // choose earliest target or earliest endsAt
+        // pick prize that ends earlier first (or has target block)
         const score = (it.clientBlockNumTarget || it.endsAt || Number.MAX_SAFE_INTEGER);
         if (!best || score < best.score) best = { gwId: gw.id, itemId: it.id, score };
       }
@@ -229,6 +223,7 @@ async function processAwaitingQueue() {
           let blockObj = null;
           let blockNum = null;
           if (typeof targetNum === 'number') {
+            // try fetch that block
             blockObj = await getBlockByNumber(targetNum);
             blockNum = targetNum;
           } else {
@@ -248,17 +243,16 @@ async function processAwaitingQueue() {
             success = true;
             break;
           } else {
-            // wait 10s then try again
+            // wait 10s and try again
             await delay(10000);
             // re-check if item changed (deleted or already finalized)
             const gwNow = findGiveawayById(gw.id);
             if (!gwNow) { success = true; break; }
             const itNow = gwNow.items.find(i => i.id === item.id);
             if (!itNow || itNow.ended || !itNow.awaitingClientSeed) { success = true; break; }
-            // continue looping
           }
         } catch (err) {
-          console.warn('Worker loop error', err.message || err);
+          console.warn('Worker loop error', err && (err.message || err));
           await delay(10000);
         }
       }
@@ -268,7 +262,7 @@ async function processAwaitingQueue() {
   }
 }
 
-// ----------------- Finalize prize when block fetched -----------------
+// -------------------- Finalize prize when block fetched --------------------
 function pickTopNFromHmacs(hmap, n) {
   const arr = Object.entries(hmap || {}).map(([uid, info]) => ({ uid, float: info.float }));
   arr.sort((a, b) => b.float - a.float);
@@ -283,7 +277,6 @@ function pickRandom(entries, n) {
 
 async function finalizeItemWithFetchedBlock(gw, item, target) {
   try {
-    // reload gw fresh
     const gwFresh = findGiveawayById(gw.id) || gw;
     const itemFresh = gwFresh.items.find(it => it.id === item.id) || item;
 
@@ -291,7 +284,7 @@ async function finalizeItemWithFetchedBlock(gw, item, target) {
     itemFresh.clientBlockNum = typeof target.blockNum === 'number' ? target.blockNum : itemFresh.clientBlockNum || null;
     itemFresh.clientSeed = itemFresh.clientBlockID || '(unavailable)';
 
-    // compute hmacs for every entrant
+    // compute HMACs
     itemFresh.hmacs = itemFresh.hmacs || {};
     for (const uid of itemFresh.entries || []) {
       try {
@@ -299,7 +292,7 @@ async function finalizeItemWithFetchedBlock(gw, item, target) {
         const floatVal = hmacHexToFloat(mac);
         itemFresh.hmacs[uid] = { hmac: mac, float: floatVal };
       } catch (e) {
-        console.warn('hmac compute fail for uid', uid, e.message || e);
+        console.warn('hmac compute failed', e && (e.message || e));
       }
     }
 
@@ -311,7 +304,7 @@ async function finalizeItemWithFetchedBlock(gw, item, target) {
 
     saveGiveaway(gwFresh);
 
-    // update the message embed if possible
+    // update embed message if exists
     try {
       const ch = await client.channels.fetch(gwFresh.channelId).catch(() => null);
       if (ch) {
@@ -324,7 +317,7 @@ async function finalizeItemWithFetchedBlock(gw, item, target) {
       }
     } catch (e) { /* ignore */ }
 
-    // announce winners
+    // announce winners in channel
     try {
       const ch = await client.channels.fetch(gwFresh.channelId).catch(() => null);
       if (ch) {
@@ -335,11 +328,11 @@ async function finalizeItemWithFetchedBlock(gw, item, target) {
 
     console.log(`Finalized item ${itemFresh.id} (giveaway ${gwFresh.id}) winners:`, itemFresh.winners);
   } catch (err) {
-    console.error('finalizeItemWithFetchedBlock error', err);
+    console.error('finalizeItemWithFetchedBlock error', err && (err.stack || err.message || err));
   }
 }
 
-// ----------------- Scheduling / ending -----------------
+// -------------------- Scheduling / ending --------------------
 const itemTimers = new Map();
 
 function scheduleItemEnd(gwId, itemId) {
@@ -365,22 +358,22 @@ async function endItem(gwId, itemId) {
   const item = gw.items.find(it => it.id === itemId);
   if (!item || item.ended) return;
 
-  // mark awaitingClientSeed
+  // mark awaiting
   item.awaitingClientSeed = true;
-  // try to set clientBlockNumTarget now = now block + 2
+  // try compute now block -> target = now + 2
   const nowraw = await getNowBlockRaw();
   const nowNum = extractBlockNumber(nowraw);
   if (typeof nowNum === 'number') {
     item.clientBlockNumTarget = nowNum + 2;
   } else {
-    item.clientBlockNumTarget = null; // worker will compute later
+    item.clientBlockNumTarget = null;
   }
   saveGiveaway(gw);
 
   await enqueueAwaitingItem(gwId, itemId);
 }
 
-// ----------------- Reroll handler logic (reset behavior) -----------------
+// -------------------- Reroll handler --------------------
 async function rerollItemHandler(gwId, itemId, resetFlag) {
   const gw = findGiveawayById(gwId);
   if (!gw) throw new Error('giveaway_not_found');
@@ -388,7 +381,7 @@ async function rerollItemHandler(gwId, itemId, resetFlag) {
   if (!item) throw new Error('item_not_found');
 
   if (resetFlag) {
-    // clear client seeds/state so worker will re-fetch a new block and roll again
+    // clear state and enqueue
     item.clientSeed = null;
     item.clientBlockID = null;
     item.clientBlockNum = null;
@@ -398,24 +391,59 @@ async function rerollItemHandler(gwId, itemId, resetFlag) {
     item.ended = false;
     item.awaitingClientSeed = true;
 
-    // compute immediate target if possible
     const nowRaw = await getNowBlockRaw();
     const nowNum = extractBlockNumber(nowRaw);
-    if (typeof nowNum === 'number') {
-      item.clientBlockNumTarget = nowNum + 2;
-    } else {
-      item.clientBlockNumTarget = null;
-    }
+    if (typeof nowNum === 'number') item.clientBlockNumTarget = nowNum + 2;
+    else item.clientBlockNumTarget = null;
 
     saveGiveaway(gw);
-
     await enqueueAwaitingItem(gwId, itemId);
     return { status: 'reset_enqueued' };
   }
 
-  // If not reset, follow existing reroll semantics:
+  // recompute if already ended
+  if (item.ended && item.clientSeed) {
+    item.hmacs = {};
+    for (const uid of item.entries || []) {
+      try {
+        const mac = hmacSha512Hex(gw.serverPublicKey || '', `${item.clientSeed}:${uid}`);
+        const floatVal = hmacHexToFloat(mac);
+        item.hmacs[uid] = { hmac: mac, float: floatVal };
+      } catch (e) { /* ignore */ }
+    }
+    item.winners = Object.keys(item.hmacs).length ? pickTopNFromHmacs(item.hmacs, item.winnersCount) : pickRandom(item.entries || [], item.winnersCount);
+    saveGiveaway(gw);
+
+    // update message & announce reroll
+    try {
+      const ch = await client.channels.fetch(gw.channelId).catch(() => null);
+      if (ch) {
+        const msg = await ch.messages.fetch(gw.messageId).catch(() => null);
+        if (msg) await msg.edit({ embeds: [buildGiveawayEmbed(gw)], components: buildButtonRowsForGiveaway(gw) }).catch(() => { });
+      }
+    } catch (e) { /* ignore */ }
+
+    try {
+      const ch = await client.channels.fetch(gw.channelId).catch(() => null);
+      if (ch) {
+        const announce = item.winners && item.winners.length ? `🔁 Reroll — **${item.prize}** — Winners: ${item.winners.map(id => `<@${id}>`).join(', ')}` : `🔁 Reroll — **${item.prize}** — No valid entries`;
+        await ch.send({ content: announce }).catch(() => { });
+      }
+    } catch (e) { /* ignore */ }
+
+    return { status: 'rerolled_recompute', winners: item.winners };
+  }
+
+  // if not ended -> set endsAt = now to trigger endItem flow
+  if (!item.ended && !item.awaitingClientSeed) {
+    item.endsAt = Date.now();
+    saveGiveaway(gw);
+    await endItem(gwId, itemId);
+    return { status: 'force_ending' };
+  }
+
+  // if awaiting already -> enqueue or finalize if block present
   if (item.awaitingClientSeed) {
-    // try immediate fetch if target present; otherwise enqueue
     if (typeof item.clientBlockNumTarget === 'number') {
       const block = await getBlockByNumber(item.clientBlockNumTarget);
       if (block && (block.blockID || (block.block_header && block.block_header.raw_data))) {
@@ -431,54 +459,10 @@ async function rerollItemHandler(gwId, itemId, resetFlag) {
     }
   }
 
-  // if ended with clientSeed -> recompute winners deterministically
-  if (item.ended && item.clientSeed) {
-    item.hmacs = {};
-    for (const uid of item.entries || []) {
-      try {
-        const mac = hmacSha512Hex(gw.serverPublicKey || '', `${item.clientSeed}:${uid}`);
-        const floatVal = hmacHexToFloat(mac);
-        item.hmacs[uid] = { hmac: mac, float: floatVal };
-      } catch (e) { /* ignore */ }
-    }
-    item.winners = Object.keys(item.hmacs).length ? pickTopNFromHmacs(item.hmacs, item.winnersCount) : pickRandom(item.entries || [], item.winnersCount);
-    saveGiveaway(gw);
-
-    // update message if exists
-    try {
-      const ch = await client.channels.fetch(gw.channelId).catch(() => null);
-      if (ch) {
-        const msg = await ch.messages.fetch(gw.messageId).catch(() => null);
-        if (msg) {
-          await msg.edit({ embeds: [buildGiveawayEmbed(gw)], components: buildButtonRowsForGiveaway(gw) }).catch(() => { });
-        }
-      }
-    } catch (e) { /* ignore */ }
-
-    // announce reroll winners
-    try {
-      const ch = await client.channels.fetch(gw.channelId).catch(() => null);
-      if (ch) {
-        const announce = item.winners && item.winners.length ? `🔁 Reroll — **${item.prize}** — Winners: ${item.winners.map(id => `<@${id}>`).join(', ')}` : `🔁 Reroll — **${item.prize}** — No valid entries`;
-        await ch.send({ content: announce }).catch(() => { });
-      }
-    } catch (e) { /* ignore */ }
-
-    return { status: 'rerolled_recompute', winners: item.winners };
-  }
-
-  // if not ended and not awaiting -> force end
-  if (!item.ended && !item.awaitingClientSeed) {
-    item.endsAt = Date.now();
-    saveGiveaway(gw);
-    await endItem(gwId, itemId);
-    return { status: 'force_ending' };
-  }
-
   return { status: 'no_action' };
 }
 
-// ----------------- Express API -----------------
+// -------------------- Express API --------------------
 const app = express();
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
@@ -494,40 +478,37 @@ function checkAdmin(req, res) {
   return true;
 }
 
-// GET status (used by UI to list guilds)
+// GET status (list guilds)
 app.get('/api/status', (req, res) => {
   try {
     const data = readData();
     const guilds = client && client.guilds ? client.guilds.cache.map(g => ({ id: g.id, name: g.name })) : [];
-    res.json({ ok: true, ready: client && client.isReady ? client.isReady() : false, botTag: client.user ? client.user.tag : null, botId: client.user ? client.user.id : null, guilds, requiredJoinRoleByGuild: data.requiredJoinRoleByGuild || {} });
+    res.json({ ok: true, ready: !!client && !!client.readyAt, botTag: client.user ? client.user.tag : null, botId: client.user ? client.user.id : null, guilds, requiredJoinRoleByGuild: data.requiredJoinRoleByGuild || {} });
   } catch (err) {
     res.status(500).json({ error: 'internal', detail: err.message });
   }
 });
 
+// GET giveaways
 app.get('/api/giveaways', (req, res) => {
   try {
     res.json({ giveaways: listGiveaways() });
-  } catch (err) { res.status(500).json({ error: 'internal', detail: err.message }); }
+  } catch (err) {
+    res.status(500).json({ error: 'internal', detail: err.message });
+  }
 });
 
-app.get('/api/giveaway/:guildId/:messageId', (req, res) => {
-  const gw = findGiveawayByMessage(req.params.guildId, req.params.messageId);
-  if (!gw) return res.status(404).json({ error: 'not_found' });
-  res.json({ giveaway: gw });
-});
-
+// GET guild channels
 app.get('/api/guilds/:guildId/channels', async (req, res) => {
   try {
-    if (!client.isReady()) return res.status(503).json({ error: 'bot_not_ready' });
+    if (!client || !client.readyAt) return res.status(503).json({ error: 'bot_not_ready' });
     const guildId = req.params.guildId;
     const guild = await client.guilds.fetch(guildId).catch(() => null);
     if (!guild) return res.status(404).json({ error: 'guild_not_found' });
-    // fetch channels
     const channels = await guild.channels.fetch().catch(() => guild.channels.cache);
     const out = [];
     for (const ch of channels.values()) {
-      // only text based channels
+      // select text-based channels (safeguard)
       let isText = false;
       try { isText = typeof ch.isTextBased === 'function' ? ch.isTextBased() : (ch.type === ChannelType.GuildText || ch.type === ChannelType.GuildAnnouncement); } catch (e) { isText = false; }
       if (!isText) continue;
@@ -540,14 +521,15 @@ app.get('/api/guilds/:guildId/channels', async (req, res) => {
     }
     res.json({ channels: out });
   } catch (err) {
-    console.error('/api/guilds/:guildId/channels error', err);
+    console.error('/api/guilds/:guildId/channels error', err && (err.stack || err.message || err));
     res.status(500).json({ error: 'internal', detail: err.message });
   }
 });
 
+// GET guild roles
 app.get('/api/guilds/:guildId/roles', async (req, res) => {
   try {
-    if (!client.isReady()) return res.status(503).json({ error: 'bot_not_ready' });
+    if (!client || !client.readyAt) return res.status(503).json({ error: 'bot_not_ready' });
     const guildId = req.params.guildId;
     const guild = await client.guilds.fetch(guildId).catch(() => null);
     if (!guild) return res.status(404).json({ error: 'guild_not_found' });
@@ -557,7 +539,7 @@ app.get('/api/guilds/:guildId/roles', async (req, res) => {
     out.sort((a, b) => b.position - a.position);
     res.json({ roles: out });
   } catch (err) {
-    console.error('/api/guilds/:guildId/roles error', err);
+    console.error('/api/guilds/:guildId/roles error', err && (err.stack || err.message || err));
     res.status(500).json({ error: 'internal', detail: err.message });
   }
 });
@@ -567,17 +549,16 @@ app.post('/api/giveaways', async (req, res) => {
   try {
     const { guildId, channelId, hostId, isAllInOne, items } = req.body;
     if (!guildId || !channelId || !items || !Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'missing_fields' });
-    if (!client.isReady()) return res.status(503).json({ error: 'bot_not_ready' });
+    if (!client || !client.readyAt) return res.status(503).json({ error: 'bot_not_ready' });
 
     const guild = await client.guilds.fetch(guildId).catch(() => null);
     if (!guild) return res.status(404).json({ error: 'guild_not_found' });
     const ch = await guild.channels.fetch(channelId).catch(() => null);
     if (!ch) return res.status(404).json({ error: 'channel_not_found' });
 
-    // prepare items
+    // prepare items: each item must have id & endsAt
     const prepared = items.map((it, idx) => {
-      const duration = Number(it.durationMinutes || 0);
-      const endsAt = it.endsAt ? Number(it.endsAt) : (duration > 0 ? Date.now() + duration * 60000 : Date.now() + 5 * 60000);
+      const endsAt = it.endsAt ? Number(it.endsAt) : (Date.now() + 5 * 60000);
       return {
         id: `item_${Date.now()}_${idx}_${Math.floor(Math.random() * 9000 + 1000)}`,
         prize: it.prize || `(no prize ${idx})`,
@@ -598,31 +579,29 @@ app.post('/api/giveaways', async (req, res) => {
 
     const gw = newGiveawayObj({ guildId, channelId, hostId, isAllInOne, items: prepared });
 
-    // send message to channel
+    // send initial embed message
     const embed = buildGiveawayEmbed(gw);
     const tempRows = [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('tmp_join').setLabel('Join').setStyle(ButtonStyle.Success))];
     const sent = await ch.send({ embeds: [embed], components: tempRows }).catch(err => { throw err; });
     gw.messageId = sent.id;
-    // edit to proper rows
     const rows = buildButtonRowsForGiveaway(gw);
     await sent.edit({ components: rows }).catch(() => { });
 
     saveGiveaway(gw);
 
-    // schedule items
+    // schedule items end
     for (const it of gw.items) scheduleItemEnd(gw.id, it.id);
 
     res.json({ ok: true, giveaway: gw });
   } catch (err) {
-    console.error('POST /api/giveaways error', err);
-    return res.status(500).json({ error: 'internal', detail: err.message });
+    console.error('POST /api/giveaways error', err && (err.stack || err.message || err));
+    return res.status(500).json({ error: 'internal', detail: err && (err.message || err) });
   }
 });
 
 // Reroll (with optional reset)
 app.post('/api/giveaways/:gwId/reroll', async (req, res) => {
   try {
-    // admin check (if ADMIN_SECRET configured)
     if (!checkAdmin(req, res)) return;
     const gwId = req.params.gwId;
     const itemId = req.body.itemId;
@@ -631,8 +610,8 @@ app.post('/api/giveaways/:gwId/reroll', async (req, res) => {
     const out = await rerollItemHandler(gwId, itemId, reset);
     return res.json({ ok: true, result: out });
   } catch (err) {
-    console.error('/api/giveaways/:gwId/reroll error', err);
-    return res.status(500).json({ error: 'internal', detail: err.message });
+    console.error('/api/giveaways/:gwId/reroll error', err && (err.stack || err.message || err));
+    return res.status(500).json({ error: 'internal', detail: err && (err.message || err) });
   }
 });
 
@@ -654,7 +633,7 @@ app.post('/api/giveaways/:gwId/force-end', async (req, res) => {
     }
     res.json({ ok: true, result: results });
   } catch (err) {
-    console.error('/api/giveaways/:gwId/force-end error', err);
+    console.error('/api/giveaways/:gwId/force-end error', err && (err.stack || err.message || err));
     res.status(500).json({ error: 'internal', detail: err.message });
   }
 });
@@ -667,7 +646,7 @@ app.delete('/api/giveaways/:gwId', async (req, res) => {
     const gw = findGiveawayById(gwId);
     if (!gw) return res.status(404).json({ error: 'not_found' });
 
-    // delete message if exists
+    // attempt delete message
     try {
       const ch = await client.channels.fetch(gw.channelId).catch(() => null);
       if (ch) {
@@ -679,19 +658,39 @@ app.delete('/api/giveaways/:gwId', async (req, res) => {
     removeGiveawayById(gwId);
     res.json({ ok: true });
   } catch (err) {
-    console.error('DELETE /api/giveaways/:gwId error', err);
-    res.status(500).json({ error: 'internal', detail: err.message });
+    console.error('DELETE /api/giveaways/:gwId error', err && (err.stack || err.message || err));
+    res.status(500).json({ error: 'internal', detail: err && (err.message || err) });
   }
 });
 
+// Start HTTP server
 app.listen(PORT, () => console.log(`Dashboard/API running at http://localhost:${PORT}`));
 
-// ----------------- Discord client & interactions -----------------
+// -------------------- Discord client & interactions --------------------
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
   partials: [Partials.Message, Partials.Channel, Partials.Reaction]
 });
 
+// crash-on-severe-error handlers (exit to let supervisor restart)
+process.on('uncaughtException', (err) => {
+  console.error('UNCAUGHT EXCEPTION - exiting:', err && (err.stack || err.message || err));
+  setTimeout(() => process.exit(1), 200);
+});
+process.on('unhandledRejection', (reason, p) => {
+  console.error('UNHANDLED REJECTION - exiting. promise:', p, 'reason:', reason && (reason.stack || reason));
+  setTimeout(() => process.exit(1), 200);
+});
+client.on('error', (err) => {
+  console.error('Discord client error - exiting:', err && (err.stack || err.message || err));
+  setTimeout(() => process.exit(1), 200);
+});
+client.on('shardError', (err) => {
+  console.error('Discord shard error - exiting:', err && (err.stack || err.message || err));
+  setTimeout(() => process.exit(1), 200);
+});
+
+// Build embed - UPDATED: only show relative timestamp for ends time
 function buildGiveawayEmbed(gw) {
   const color = (() => {
     const anyAwaiting = gw.items.some(it => it.awaitingClientSeed && !it.ended);
@@ -704,21 +703,23 @@ function buildGiveawayEmbed(gw) {
   const embed = new EmbedBuilder()
     .setTitle('🎉 GIVEAWAY')
     .setColor(color)
-    .setDescription(`${gw.hostId ? `Hosted by: <@${gw.hostId}>\n\n` : ''}Server Public Key:\n\`${gw.serverPublicKey}\``)
-    .setTimestamp();
+    .setDescription(`${gw.hostId ? `Hosted by: <@${gw.hostId}>\n\n` : ''}Server Public Key:\n\`${gw.serverPublicKey}\``);
 
   for (const it of gw.items) {
     let status;
     if (it.ended) status = `ENDED • Winners: ${it.winners.length}`;
     else if (it.awaitingClientSeed) status = it.clientBlockNumTarget ? `Awaiting block: ${it.clientBlockNumTarget} • Entries: ${it.entries.length}` : `Awaiting block (target unknown) • Entries: ${it.entries.length}`;
-    else status = `Ends: ${it.endsAt ? `<t:${Math.floor(it.endsAt / 1000)}:F> (<t:${Math.floor(it.endsAt / 1000)}:R>)` : 'N/A'} • Entries: ${it.entries.length}`;
+    else {
+      status = it.endsAt ? `Ends: <t:${Math.floor(it.endsAt / 1000)}:R> • Entries: ${it.entries.length}` : `Ends: (N/A) • Entries: ${it.entries.length}`;
+    }
 
     if (it.clientBlockNum && it.clientBlockID) {
       status += `\nClient Block: ${it.clientBlockNum}`;
       status += `\nClientSeed: \`${it.clientSeed}\``;
     }
 
-    embed.addFields({ name: it.prize, value: status.slice(0, 900), inline: false });
+    // limit per-field length
+    embed.addFields({ name: it.prize, value: (status || '').slice(0, 900), inline: false });
   }
 
   embed.setFooter({ text: `Giveaway id: ${gw.id}` });
@@ -732,19 +733,22 @@ function buildButtonRowsForGiveaway(gw) {
   return rows;
 }
 
+// Interaction handlers: Join, Verify (summary + Details button), Details (full text or file)
 client.on('interactionCreate', async (interaction) => {
   try {
     if (!interaction.isButton()) return;
     const cid = interaction.customId || '';
-    // Join
+
+    // JOIN button
     if (cid.startsWith('gw_join:')) {
       const gwId = cid.split(':')[1];
       const gw = findGiveawayById(gwId);
       if (!gw) return interaction.reply({ content: 'Giveaway not found', ephemeral: true });
       const userId = interaction.user.id;
       const joined = [], already = [], denied = [];
-      const guildData = readData();
-      const guildReq = (guildData.requiredJoinRoleByGuild || {})[gw.guildId] || null;
+
+      const data = readData();
+      const guildReq = (data.requiredJoinRoleByGuild || {})[gw.guildId] || null;
 
       // fetch guild for role checking if possible
       let guildObj = null;
@@ -774,9 +778,7 @@ client.on('interactionCreate', async (interaction) => {
         const ch = await client.channels.fetch(gw.channelId).catch(() => null);
         if (ch) {
           const msg = await ch.messages.fetch(gw.messageId).catch(() => null);
-          if (msg) {
-            await msg.edit({ embeds: [buildGiveawayEmbed(gw)], components: buildButtonRowsForGiveaway(gw) }).catch(() => { });
-          }
+          if (msg) await msg.edit({ embeds: [buildGiveawayEmbed(gw)], components: buildButtonRowsForGiveaway(gw) }).catch(() => { });
         }
       } catch (e) { /* ignore */ }
 
@@ -789,7 +791,7 @@ client.on('interactionCreate', async (interaction) => {
       return interaction.reply({ content: lines.join('\n'), ephemeral: true });
     }
 
-    // Verify
+    // VERIFY button (summary + Details button)
     if (cid.startsWith('gw_verify:')) {
       const gwId = cid.split(':')[1];
       const gw = findGiveawayById(gwId);
@@ -800,6 +802,7 @@ client.on('interactionCreate', async (interaction) => {
         return interaction.reply({ content: `Verification pending. Waiting for block seed for: ${awaiting.join(', ')}.`, ephemeral: true });
       }
 
+      // Build summary embed (PF + method)
       const color = (() => {
         const anyAwaiting = gw.items.some(it => it.awaitingClientSeed && !it.ended);
         const allEnded = gw.items.every(it => it.ended);
@@ -808,33 +811,27 @@ client.on('interactionCreate', async (interaction) => {
         return COLOR_COUNTDOWN;
       })();
 
-      const pfEmbed = new EmbedBuilder()
-        .setTitle('🔍 Provably-Fair (Summary)')
-        .setColor(color)
-        .setDescription(`Giveaway: ${gw.id}\nServer Public Key:\n\`${gw.serverPublicKey}\``)
-        .setTimestamp();
+      const pfEmbed = new EmbedBuilder().setTitle('🔍 Provably-Fair (Summary)').setColor(color)
+        .setDescription(`Giveaway: ${gw.id}\nServer Public Key:\n\`${gw.serverPublicKey}\``);
 
       for (const it of gw.items) {
         const lines = [];
         lines.push(`Prize: ${it.prize}`);
-        lines.push(`Winners: ${it.winnersCount} • Entries: ${it.entries.length} • Ended: ${it.ended}`);
+        lines.push(`Winners: ${it.winnersCount} • Entries: ${it.entries.length} • Ended: ${it.ended ? 'Yes' : 'No'}`);
         if (it.clientBlockNum && it.clientBlockID) {
           lines.push(`Client Block: ${it.clientBlockNum}`);
-          lines.push(`ClientSeed: ${it.clientSeed}`);
+          lines.push(`ClientSeed: \`${it.clientSeed}\``);
         } else if (it.clientBlockNumTarget) {
           lines.push(`Client Block Target: ${it.clientBlockNumTarget} (awaiting block)`);
         } else {
           lines.push(`Client Block: (unavailable)`);
         }
 
+        // top entrants by float (if computed)
         const arr = Object.entries(it.hmacs || {}).map(([uid, info]) => ({ uid, float: info.float })).sort((a, b) => b.float - a.float);
         if (arr.length) {
-          lines.push('Top entrants:');
-          const top = arr.slice(0, 10);
-          for (let i = 0; i < top.length; i++) {
-            const t = top[i];
-            lines.push(`${i + 1}. <@${t.uid}> — ${t.float.toFixed(12)} ${it.winners.includes(t.uid) ? '⭐' : ''}`);
-          }
+          const top = arr.slice(0, 10).map((t, i) => `${i + 1}. <@${t.uid}> — ${t.float.toFixed(12)} ${it.winners.includes(t.uid) ? '⭐' : ''}`);
+          lines.push('Top entrants:\n' + top.join('\n'));
         } else {
           if (it.entries && it.entries.length) {
             lines.push(`Entrants (${it.entries.length}): ${it.entries.slice(0, 10).map(id => `<@${id}>`).join(', ')}${it.entries.length > 10 ? ', ...' : ''}`);
@@ -851,12 +848,13 @@ client.on('interactionCreate', async (interaction) => {
       return;
     }
 
-    // Details
+    // DETAILS button
     if (cid.startsWith('gw_details:')) {
       const gwId = cid.split(':')[1];
       const gw = findGiveawayById(gwId);
       if (!gw) return interaction.reply({ content: 'Giveaway not found', ephemeral: true });
 
+      // Build full text report (may be long)
       const lines = [];
       for (const it of gw.items) {
         lines.push(`=== Prize: ${it.prize} ===`);
@@ -869,14 +867,21 @@ client.on('interactionCreate', async (interaction) => {
         } else {
           lines.push('Client Block: (unavailable)');
         }
+
         if (it.hmacs && Object.keys(it.hmacs).length) {
-          const arr = Object.entries(it.hmacs).map(([uid,info]) => ({ uid, float: info.float, hmac: info.hmac })).sort((a,b)=>b.float-a.float);
+          const arr = Object.entries(it.hmacs).map(([uid, info]) => ({ uid, float: info.float, hmac: info.hmac })).sort((a, b) => b.float - a.float);
           lines.push('Entrants (sorted by float):');
-          for (let i=0;i<arr.length;i++) lines.push(`${i+1}. <@${arr[i].uid}> — ${arr[i].float.toFixed(12)} — HMAC: ${arr[i].hmac}`);
+          for (let i = 0; i < arr.length; i++) {
+            const row = arr[i];
+            lines.push(`${i + 1}. <@${row.uid}> — ${row.float.toFixed(12)} — HMAC: ${row.hmac}`);
+          }
         } else if (it.entries && it.entries.length) {
-          lines.push('Entrants (no HMACs): ' + it.entries.map(e => `<@${e}>`).join(', '));
-        } else lines.push('(no entrants)');
-        if (it.winners && it.winners.length) lines.push('Winners: ' + it.winners.map(id=>`<@${id}>`).join(', '));
+          lines.push('Entrants: ' + it.entries.map(e => `<@${e}>`).join(', '));
+        } else {
+          lines.push('(no entrants)');
+        }
+
+        if (it.winners && it.winners.length) lines.push('Winners: ' + it.winners.map(id => `<@${id}>`).join(', '));
         lines.push('');
       }
 
@@ -891,12 +896,12 @@ client.on('interactionCreate', async (interaction) => {
     }
 
   } catch (err) {
-    console.error('interactionCreate error', err);
+    console.error('interactionCreate error', err && (err.stack || err.message || err));
     try { if (interaction && !interaction.replied) interaction.reply({ content: 'Internal error', ephemeral: true }); } catch (_) { }
   }
 });
 
-// ----------------- Client ready -----------------
+// -------------------- Client ready --------------------
 client.once('ready', () => {
   console.log('Bot ready:', client.user.tag);
   // reschedule existing giveaways
@@ -906,14 +911,14 @@ client.once('ready', () => {
       if (!it.ended && it.endsAt) scheduleItemEnd(gw.id, it.id);
     }
   }
+  // start worker
   processAwaitingQueue().catch(err => console.error('processAwaitingQueue startup error', err));
 });
 
-// ----------------- Login -----------------
+// -------------------- Login --------------------
 if (!process.env.BOT_TOKEN) {
-  console.error('Missing BOT_TOKEN in .env');
+  console.error('Missing BOT_TOKEN in .env — set BOT_TOKEN=your_token');
   process.exit(1);
 }
-client.login(process.env.BOT_TOKEN).catch(err => { console.error('Login failed', err); process.exit(1); });
-
+client.login(process.env.BOT_TOKEN).catch(err => { console.error('Login failed', err && (err.stack || err.message || err)); process.exit(1); });
 
