@@ -1458,6 +1458,251 @@
             "857620755788202015",
             "809468250638909491"
           ],
+          "hmacs": {
+            "704674634892574790": {
+              "hmac": "4c17a4fcb1f52ea01c35268b34ef6f5dbb513bad694c0aa354abfb3c0397cd40072c71cc79ce4b09251ce9198e5b9cedba8d8ef57a75b73b056af4885282458b",
+              "float": 0.2972357861453543
+            },
+            "648498298138918915": {
+              "hmac": "8005a706a332c7204751162c5ff3521bc3fd781709e0199489430fbfe861280bb0b4d9e8294100c5f138b83e4ba15203b42f41ad758616b53bc270e8c75fd566",
+              "float": 0.5000862494664018
+            },
+            "813053624644010014": {
+              "hmac": "4320ace771d47d8d613129fb72502f3760069e31cdafb029981a7f74ec5bacefe14e56d162afe8d4bdb576112f6a273a804e62504f168ec53b40eb0f21fc1d01",
+              "float": 0.2622173371363077
+            },
+            "355146544133046273": {
+              "hmac": "9d4f0c3dee0b91f1019d7f3467614b8c7d21e30ec8ee04560d66fafc0d1b306226a1828ab7e04ece4c7a199687a6e98cb1aee55faadf6033163b4fc77aeb0b0e",
+              "float": 0.6144874240108449
+            },
+            "439739585811972107": {
+              "hmac": "7ba4793ee1c963a2bd5ed1430f009eb221f7b2d32e21f40598a0a08b16337e14bbadff7828459c6931d000bc1fe75286c4badf254fc34476337b9077ff934a43",
+              "float": 0.48297841820911946
+            },
+            "809379168038158338": {
+              "hmac": "0a14757521582fa0b11ce88bcf4504f53fc44e55308a315327cfb39f7836d621b98d10ddf0fb773b9de1f329778e884c437efe66f522cdb211bb3fe4775baa98",
+              "float": 0.039374676796200436
+            },
+            "598529728168722442": {
+              "hmac": "d871402488d1e93a4490fc011e55216d4d64f87776903aa1cbe04e2fa90e595f90795b705f22b34b3a5289b311b99b620839957bdb22959b9d38665f78d6e1fe",
+              "float": 0.8454780663676682
+            },
+            "708274720319209493": {
+              "hmac": "33e84a141a953486ea39b843a0a1f91840f7ad8b81deb9a76fa37d2c168731259badf03215d468c9350ff49e9b1f26305d4aa3f16bcbf7fa5a29030df50cc161",
+              "float": 0.20276320448700313
+            },
+            "568462423640637441": {
+              "hmac": "94eb08311315e13eaa6d84c4baf9247e804f3ab4307445f067e448af2ec33634222fd78d9297e08815e6eb5fdd1bfaef10291bd123d30a554875e6e999934ee2",
+              "float": 0.5817113036929054
+            },
+            "857620755788202015": {
+              "hmac": "ef84d9b7e92052de991772ac1287c3be0fd2cdd244e2e9e4a80f9bc28eb0714499306e3fde3b380bb649ffa65f009c32b22c8a8d6de8f47d58d27792efe11f8e",
+              "float": 0.9356208871842011
+            },
+            "809468250638909491": {
+              "hmac": "566802d3abd7fd973bbdeee8c4594cea8809d098fd45dff2f8714ca52ae224228e28942e6390acb75c2d33d929e0862ea72f07f68666347f3a36a9e530c8aec6",
+              "float": 0.3375245825553461
+            }
+          },
+          "winners": [
+            "857620755788202015"
+          ],
+          "ended": true,
+          "clientBlockID": "00000000048705fce21b2471b7ddee0e404c8f3efbb232ad25262d2ebb1c18d3",
+          "clientBlockNum": 75957756,
+          "clientSeed": "00000000048705fce21b2471b7ddee0e404c8f3efbb232ad25262d2ebb1c18d3",
+          "clientBlockNumTarget": 75957756,
+          "awaitingClientSeed": false
+        }
+      ]
+    },
+    {
+      "id": "gw_1758534005145_8845",
+      "guildId": "818371741742137345",
+      "channelId": "818371741742137348",
+      "messageId": "1419619266436661349",
+      "hostId": null,
+      "createdAt": 1758534005145,
+      "isAllInOne": true,
+      "serverPublicKey": "htpxxkj2ik99jk0hl37iogww5z68poubqh3t94wfsssjrkich3bkxrc8nt8qjwkf",
+      "items": [
+        {
+          "id": "item_1758534005145_0_1158",
+          "prize": "1",
+          "endsAt": 1758534065145,
+          "winnersCount": 1,
+          "requiredRole": null,
+          "entries": [
+            "439739585811972107",
+            "696253515533647902"
+          ],
+          "hmacs": {
+            "439739585811972107": {
+              "hmac": "1dd58b2eaeb0309c2690d4a2979c76a31c92c63c4a7b472448de4b4925f96091046ba594323552bfdb5f0b9c51ec497f79bcfece6f2857ac59cd26955fb0782d",
+              "float": 0.11653966798502391
+            },
+            "696253515533647902": {
+              "hmac": "d77a57aecebe30f8e5df39f883c36fae18e03fbda707ce3920ecb3209887f9070f436e2ce989333a0507b4f3fea3a751389edb0d4f056bf8ec4719446c6c9ed3",
+              "float": 0.841710548570284
+            }
+          },
+          "winners": [
+            "696253515533647902"
+          ],
+          "ended": true,
+          "clientBlockID": "00000000048706eb658a63f69806fdd6102160dddb99ddd4073d10406a010f44",
+          "clientBlockNum": 75957995,
+          "clientSeed": "00000000048706eb658a63f69806fdd6102160dddb99ddd4073d10406a010f44",
+          "clientBlockNumTarget": 75957995,
+          "awaitingClientSeed": false
+        },
+        {
+          "id": "item_1758534005145_1_9345",
+          "prize": "2",
+          "endsAt": 1758534071145,
+          "winnersCount": 1,
+          "requiredRole": null,
+          "entries": [
+            "439739585811972107",
+            "696253515533647902"
+          ],
+          "hmacs": {
+            "439739585811972107": {
+              "hmac": "78867016a4f92036d3a58c7f337d630de0cff5447cedef68aab68fda1636ccb5bb1c5bfcf9249241ed05a91465d84ee9d0d1008cf3938dc88ec3c8ca358907d0",
+              "float": 0.4708013587269062
+            },
+            "696253515533647902": {
+              "hmac": "41084100b7ece69f281b5ba80eebfd6c8bee28973afd1f787e2bce6cf7eddca0dc78e9eda2f9e754fabb15fb3eaaf82a31a676977df25526cd3165b024512268",
+              "float": 0.2540321947816895
+            }
+          },
+          "winners": [
+            "439739585811972107"
+          ],
+          "ended": true,
+          "clientBlockID": "00000000048706ee696e4bb9e4a2d9a5e7084f32dbe92ecc517395d90e838141",
+          "clientBlockNum": 75957998,
+          "clientSeed": "00000000048706ee696e4bb9e4a2d9a5e7084f32dbe92ecc517395d90e838141",
+          "clientBlockNumTarget": 75957998,
+          "awaitingClientSeed": false
+        }
+      ]
+    },
+    {
+      "id": "gw_1758534992446_1799",
+      "guildId": "809044286149492767",
+      "channelId": "833336743113392158",
+      "messageId": "1419623407196180482",
+      "hostId": null,
+      "createdAt": 1758534992446,
+      "isAllInOne": false,
+      "serverPublicKey": "ijsv4302gww2ncl0l31rqsqhdwms1776kadxnonug072ygvw4pmktfr55s8xqcka",
+      "items": [
+        {
+          "id": "item_1758534992445_0_1950",
+          "prize": "50k",
+          "endsAt": 1758542192445,
+          "winnersCount": 1,
+          "requiredRole": "1247894451255382116",
+          "entries": [
+            "599056337803935815",
+            "355146544133046273",
+            "762851208179744799",
+            "568462423640637441",
+            "809379168038158338",
+            "648498298138918915",
+            "708274720319209493",
+            "439739585811972107",
+            "526082075326152704",
+            "704674634892574790"
+          ],
+          "hmacs": {
+            "599056337803935815": {
+              "hmac": "45dd5513a6c66ab363f4bc3e7424362fac82beea7897b747813cf0de7d7f86b14facd93248db8317bcd5e88cb03b4829095040d21e1748a9e902e2db328650b7",
+              "float": 0.2729085133530815
+            },
+            "355146544133046273": {
+              "hmac": "147637eaa80e7917c53b7bb129de6db84211029b38a50711cacd7ef93544fec587572e3e1cc7f9234c49e79670c1c4b23ca13498df1f832d2dd18248eb0fef1c",
+              "float": 0.07992887000005466
+            },
+            "762851208179744799": {
+              "hmac": "df498a2e625d1c53f55548c4482d47c8992cf829488e527e79e663d6a4ed146ebab59140be564d9549c18d8a9d8309ca3d6c7295865bbf480ebe6be78dd9af7d",
+              "float": 0.8722158778422122
+            },
+            "568462423640637441": {
+              "hmac": "f311784541c79cfebc53c7b52127bf9027a6f187dadc4c5284552356ce82e205352551180e48c5f8b569d06b8e150bebed458f8fc88415210f5e85009dd8b067",
+              "float": 0.9494853180965761
+            },
+            "809379168038158338": {
+              "hmac": "decc29b2c27ba6b74a689282e0bf80bc8d1071e6e1454b27fd31d23d13f77b90f6df746e2300c1e3ad18608c8b57467df906a06e57569bc3edcefbedd982b611",
+              "float": 0.8703027783799215
+            },
+            "648498298138918915": {
+              "hmac": "24eb9840ce4e8b46ffac9bea0011ef5605c88284d3ef7fc10de413415dfc17b25859d11606a7bb7a0da47067adeeaa739b8cdf58a3f6e6f61b96e803e988eb32",
+              "float": 0.14421989042448935
+            },
+            "708274720319209493": {
+              "hmac": "6a17dea9a2b0bfc7d61ecdf4b170407e1e51a6a4e8116d17f907d33df5d9ec663fa53e3cb4baff330245140aeb6bca59af4b97a7ca7bbc8bffcff0c799ae3a81",
+              "float": 0.4144267238759223
+            },
+            "439739585811972107": {
+              "hmac": "39675eb0562258b41d77c6efa8c4dacea7d5dee1a7d07a6fc18e5b710a3c11220bbf98035ee8b0febadecfd6421facaed082ca2ead906588911432eac9e4ec6e",
+              "float": 0.22423354916657812
+            },
+            "526082075326152704": {
+              "hmac": "11e17fe659262e2d0230b1640c591906e8f6e02962aee62454638c2249e99a176329f9e0d1767fc6fc499d6269e8e2d840da60289916e34b55cd8bfe8e315780",
+              "float": 0.06984710096107749
+            },
+            "704674634892574790": {
+              "hmac": "b2d4e1eb62b847ab9eb1be9c8fae8ec5aa79992e5f0669eae2442c7013ff407d6bd5c5159a9aa77190798f01f4b93dee4297cb04007d9c6f7233f6e27519f80f",
+              "float": 0.6985608291313108
+            }
+          },
+          "winners": [
+            "568462423640637441"
+          ],
+          "ended": true,
+          "clientBlockID": "0000000004871181285602bdcaa14abbf9395c12f8ea3236ae1f628c26bce53d",
+          "clientBlockNum": 75960705,
+          "clientSeed": "0000000004871181285602bdcaa14abbf9395c12f8ea3236ae1f628c26bce53d",
+          "clientBlockNumTarget": 75960705,
+          "awaitingClientSeed": false
+        }
+      ]
+    },
+    {
+      "id": "gw_1758551369187_8506",
+      "guildId": "995245505590329394",
+      "channelId": "1397377329293951046",
+      "messageId": "1419692095408705589",
+      "hostId": null,
+      "createdAt": 1758551369187,
+      "isAllInOne": true,
+      "serverPublicKey": "4ppqt6w5zksq4ked0fvxelhmm97wcs7ub5ggkkeb6xagxzbc76bj99aalsesx3nr",
+      "items": [
+        {
+          "id": "item_1758551369187_0_6585",
+          "prize": "30c/18$ (vip1)",
+          "endsAt": 1758629009187,
+          "winnersCount": 1,
+          "requiredRole": "995253230260989992",
+          "entries": [
+            "1156656010845491240",
+            "439739585811972107",
+            "1017822987531075766",
+            "418762556455387138",
+            "229965648363651072",
+            "189204606755143680",
+            "879732708132130816",
+            "702568148200587385",
+            "160814251424874496",
+            "339094185921740800",
+            "370099536724623361",
+            "536113460480704512",
+            "452204670115512321",
+            "289072258234974209",
+            "407244720041885706"
+          ],
           "hmacs": {},
           "winners": [],
           "ended": false,
@@ -1465,6 +1710,212 @@
           "clientBlockNum": null,
           "clientSeed": null,
           "clientBlockNumTarget": null,
+          "awaitingClientSeed": false
+        },
+        {
+          "id": "item_1758551369187_1_2989",
+          "prize": "60c/36$ (vip2)",
+          "endsAt": 1758629069187,
+          "winnersCount": 1,
+          "requiredRole": "1389237357680660642",
+          "entries": [
+            "1156656010845491240",
+            "189204606755143680",
+            "702568148200587385",
+            "160814251424874496",
+            "339094185921740800",
+            "370099536724623361",
+            "452204670115512321",
+            "289072258234974209",
+            "407244720041885706"
+          ],
+          "hmacs": {},
+          "winners": [],
+          "ended": false,
+          "clientBlockID": null,
+          "clientBlockNum": null,
+          "clientSeed": null,
+          "clientBlockNumTarget": null,
+          "awaitingClientSeed": false
+        },
+        {
+          "id": "item_1758551369187_2_8057",
+          "prize": "30c/18$ (vip1) (2)",
+          "endsAt": 1758801809187,
+          "winnersCount": 1,
+          "requiredRole": "995253230260989992",
+          "entries": [
+            "1156656010845491240",
+            "439739585811972107",
+            "1017822987531075766",
+            "418762556455387138",
+            "229965648363651072",
+            "189204606755143680",
+            "879732708132130816",
+            "702568148200587385",
+            "160814251424874496",
+            "339094185921740800",
+            "370099536724623361",
+            "536113460480704512",
+            "452204670115512321",
+            "289072258234974209",
+            "407244720041885706"
+          ],
+          "hmacs": {},
+          "winners": [],
+          "ended": false,
+          "clientBlockID": null,
+          "clientBlockNum": null,
+          "clientSeed": null,
+          "clientBlockNumTarget": null,
+          "awaitingClientSeed": false
+        },
+        {
+          "id": "item_1758551369187_3_5288",
+          "prize": "60c/36$ (vip2) (2)",
+          "endsAt": 1758801869187,
+          "winnersCount": 1,
+          "requiredRole": "1389237357680660642",
+          "entries": [
+            "1156656010845491240",
+            "189204606755143680",
+            "702568148200587385",
+            "160814251424874496",
+            "339094185921740800",
+            "370099536724623361",
+            "452204670115512321",
+            "289072258234974209",
+            "407244720041885706"
+          ],
+          "hmacs": {},
+          "winners": [],
+          "ended": false,
+          "clientBlockID": null,
+          "clientBlockNum": null,
+          "clientSeed": null,
+          "clientBlockNumTarget": null,
+          "awaitingClientSeed": false
+        }
+      ]
+    },
+    {
+      "id": "gw_1758561262735_2095",
+      "guildId": "809044286149492767",
+      "channelId": "833336743113392158",
+      "messageId": "1419733580355207380",
+      "hostId": null,
+      "createdAt": 1758561262735,
+      "isAllInOne": false,
+      "serverPublicKey": "pybl5ta13gqormi9nloimjimz1u9uj9q1ig8p7az4s4nd5knqhe632m81s39kcnv",
+      "items": [
+        {
+          "id": "item_1758561262735_0_3743",
+          "prize": "25k",
+          "endsAt": 1758564000000,
+          "winnersCount": 1,
+          "requiredRole": "1247894451255382116",
+          "entries": [
+            "648498298138918915",
+            "439739585811972107",
+            "568462423640637441",
+            "598529728168722442",
+            "708274720319209493",
+            "809468250638909491",
+            "809379168038158338"
+          ],
+          "hmacs": {
+            "648498298138918915": {
+              "hmac": "7b215fe08bf3d9a7be22280b8a573e6e0294a1a99761cc4e2915d6cb05c57ed64e4a595f5471660b98e9d08119fe289f507ac83788810430e73df9ea8bc766c7",
+              "float": 0.4809780047616663
+            },
+            "439739585811972107": {
+              "hmac": "102c0a4b5771c4bbfc7fa2224b5b8ecaf9af1fab252fc44c7bc1b266883392799af1ca4953c86f97449b00a16784570285349219c0a9bebdc34566c8c2a49083",
+              "float": 0.06317200030702619
+            },
+            "568462423640637441": {
+              "hmac": "7534a11acb5d9707ae8dacd2017af4eb1e4c1a37159f39b73a3ff6afdf8a0ef3bc5dcbf6f79690cbe0bf1183bc1b08ae30ba467eb07b7ece1236ad9035d28ce7",
+              "float": 0.4578343096176154
+            },
+            "598529728168722442": {
+              "hmac": "96ae59af58e6e9170327dac180016d382f8161337fd194bb345ac8d20644407e84f3fb00fc7689dd79b1734b8341398d10c99748204a0364a3bdd83fd2e1ca09",
+              "float": 0.5885978749364784
+            },
+            "708274720319209493": {
+              "hmac": "cca8cf4aaff65800c9bb8ef4398957d72518a39c8e5a8e28a595a04e6f0c266d97dd23a9f7726205926d873203aa0549291b2b90adfef1ab9495e6bf61bb4919",
+              "float": 0.7994508321134728
+            },
+            "809468250638909491": {
+              "hmac": "edd6f136ef4d5a4d1ed65206f2d7743d205e2ba85d2f5bb1f8ef35cb04fda2aa9cec55f429114d2a70bdd44c834178e99ef9482528cc53ffc48ea9842cc3f551",
+              "float": 0.9290610083692645
+            },
+            "809379168038158338": {
+              "hmac": "a1cd77ee2ca68ce68c2b254ce657042c6a8bfd585926e4d52dc414dfe761239833d07e4ff7a819515aa87909bb396980e966d5717737dfb3474b37a939cda33c",
+              "float": 0.6320414501648433
+            }
+          },
+          "winners": [
+            "809468250638909491"
+          ],
+          "ended": true,
+          "clientBlockID": "0000000004872e51931f28e16f216b1a906b3defcf213e578f91dd6c5dde6e85",
+          "clientBlockNum": 75968081,
+          "clientSeed": "0000000004872e51931f28e16f216b1a906b3defcf213e578f91dd6c5dde6e85",
+          "clientBlockNumTarget": 75968081,
+          "awaitingClientSeed": false
+        },
+        {
+          "id": "item_1758561262735_1_2567",
+          "prize": "25k",
+          "endsAt": 1758564060000,
+          "winnersCount": 1,
+          "requiredRole": null,
+          "entries": [
+            "648498298138918915",
+            "439739585811972107",
+            "568462423640637441",
+            "598529728168722442",
+            "708274720319209493",
+            "809468250638909491",
+            "809379168038158338"
+          ],
+          "hmacs": {
+            "648498298138918915": {
+              "hmac": "1bd8a52dad9f706a975ddf396a57791470cdacaabd8995242453835721e44962867f5b062949a21a32d87f8f30775d9dcc7f5304c9b03c6f00b8a467176676da",
+              "float": 0.10877449383917592
+            },
+            "439739585811972107": {
+              "hmac": "aa3a74447b298d0180a2b323b61ce2dca81bcd6868c132f5a0fce5314aa8b58b2c902934f0e47ce495f6191156b50d726a4c39458042a904979d7e39fb89f9f5",
+              "float": 0.664954439848918
+            },
+            "568462423640637441": {
+              "hmac": "2abf204ce0f9cb6a6e05815019610521b757ab3ceb04c91d7809c2431f77a7795e643b47e87c8fd5c71a5d2a6b7ae0f2d5c961de956efeaf36581d6f5ca798c2",
+              "float": 0.16697885395931333
+            },
+            "598529728168722442": {
+              "hmac": "b130aca27d8e327099d057688922b77d81acc637843937cff67d60bb2e5064adceb80cd1b69435ba992238a77592ec67a7f8a2a20cb7d2caec94fd3c1632dd86",
+              "float": 0.6921489617066576
+            },
+            "708274720319209493": {
+              "hmac": "62926be6faad85c95b74430d9e4c3887ec9faf47a84f42ef7b863decbec7c4310e0efd2ddfc4867ef41b88de507895f35673a980a3ac335a3eaaea3772379714",
+              "float": 0.3850467146791541
+            },
+            "809468250638909491": {
+              "hmac": "35d69dd00364ec2de955df4cb7bcee38718fd9fe5086d40103a847dc4de5b37d2de50cec9e6d61ea98229be574cb76d373a880b8aeea3c55240c945a8c2ea7de",
+              "float": 0.21030603722046548
+            },
+            "809379168038158338": {
+              "hmac": "eaa4772873f23a43689a42235c66242030ec518316533354ddf20cb31975dacaf21eb37e0e4a7e21ef7185f3183f639fe23b7c1439069b3a41847347798c0cb8",
+              "float": 0.9165720437776563
+            }
+          },
+          "winners": [
+            "809379168038158338"
+          ],
+          "ended": true,
+          "clientBlockID": "0000000004872df58cde3b05d609739f7a78bc64ab238310ecf19027c9f5e71d",
+          "clientBlockNum": 75967989,
+          "clientSeed": "0000000004872df58cde3b05d609739f7a78bc64ab238310ecf19027c9f5e71d",
+          "clientBlockNumTarget": 75967989,
           "awaitingClientSeed": false
         }
       ]
