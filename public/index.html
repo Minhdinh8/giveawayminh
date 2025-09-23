@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Giveaway Dashboard — Active only (datetime)</title>
+<title>Giveaway Dashboard</title>
 <style>
   :root{--bg:#ffffff;--text:#111827;--muted:#6b7280;--accent:#06b6d4;--danger:#ef4444;--border:#e6e9ee}
   html,body{height:100%;margin:0;font-family:Inter,Roboto,Arial,sans-serif;background:var(--bg);color:var(--text)}
@@ -32,11 +32,19 @@
   .s-ended{background:#ecfdf5;color:#166534}
   pre.log{background:#f3f6f8;padding:10px;border-radius:6px;max-height:300px;overflow:auto;border:1px solid var(--border)}
   footer{color:var(--muted);font-size:13px;text-align:center;margin-top:8px}
-  @media (max-width:900px){ .row{flex-direction:column;align-items:stretch} }
+  /* modal */
+  .auth-modal { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.45); z-index:9999; }
+  .auth-box { background:#fff; border-radius:8px; padding:20px; width:420px; box-shadow:0 6px 24px rgba(0,0,0,0.2) }
+  .auth-box h3 { margin:0 0 8px 0 }
+  .auth-box p { margin:0 0 12px 0; color:var(--muted) }
+  .auth-box input { width:100%; margin-bottom:10px }
+  .auth-help { font-size:13px; color:var(--muted); margin-top:8px }
+  .hidden { display:none !important }
+  @media (max-width:520px){ .auth-box{width:92%} .row{flex-direction:column} }
 </style>
 </head>
 <body>
-  <div class="wrap">
+  <div class="wrap" id="appRoot">
     <h1>Giveaway Dashboard</h1>
     <div class="muted">Hiển thị <strong>active giveaways</strong> (mặc định ẩn history). Nhấn <strong>Refresh</strong> để load dữ liệu mới.</div>
 
@@ -105,353 +113,463 @@
     <footer>Giao diện chỉ load dữ liệu khi bạn nhấn Refresh. Reroll sẽ gửi `{ reset: true }` tới backend để xóa clientSeed và re-fetch block.</footer>
   </div>
 
+  <!-- Auth modal -->
+  <div id="authModal" class="auth-modal hidden" aria-hidden="true">
+    <div class="auth-box" role="dialog" aria-modal="true">
+      <h3>Enter Dashboard Password</h3>
+      <p>Yêu cầu mật khẩu để truy cập dashboard. Mật khẩu được in ra trên console server khi server khởi động (copy paste vào đây).</p>
+      <input id="authInput" type="password" placeholder="Password" autocomplete="one-time-code" />
+      <div style="display:flex;gap:8px;align-items:center">
+        <button id="authSubmit" class="primary">Submit</button>
+        <button id="authCancel" class="ghost">Reload</button>
+      </div>
+      <div id="authMsg" class="auth-help"></div>
+    </div>
+  </div>
+
 <script>
-/* Updated dashboard (datetime-local):
-   - choose exact end date/time for each item
-   - frontend sends items[].endsAt (millis)
-   - manual Refresh only
+/* Client-side logic (auth + dashboard). 
+   Authentication flow:
+   - Server prints a password to its console at startup.
+   - Client on first access prompts for that password.
+   - Client POSTs to /api/auth/verify with { password }.
+   - If success, server returns token; client stores token in localStorage and hides modal.
+   - Later visits reuse token; client calls /api/auth/validate to ensure token still valid.
+   - If invalid, prompt again.
 */
 
-(function(){
-  const originBase = location.origin; // backend same origin
+// basic api helpers
+const originBase = '';
+async function apiPOST(path, body, opts={}) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (opts.token) headers['x-dashboard-token'] = opts.token;
+  const r = await fetch(originBase + path, { method:'POST', headers, body: JSON.stringify(body) });
+  const txt = await r.text().catch(()=>null);
+  try { return { ok: r.ok, status: r.status, json: txt ? JSON.parse(txt) : null, text: txt }; } catch(e) { return { ok: r.ok, status: r.status, text: txt }; }
+}
+async function apiGET(path, opts={}) {
+  const headers = {};
+  if (opts.token) headers['x-dashboard-token'] = opts.token;
+  const r = await fetch(originBase + path, { method:'GET', headers });
+  if (!r.ok) return { ok:false, status:r.status, text: await r.text().catch(()=>null) };
+  const j = await r.json().catch(()=>null);
+  return { ok:true, status:r.status, json:j };
+}
 
-  // DOM
-  const guildSelect = document.getElementById('guildSelect');
-  const channelSelect = document.getElementById('channelSelect');
-  const roleSelect = document.getElementById('roleSelect');
-  const aioEl = document.getElementById('aio');
+// AUTH UI
+const authModal = document.getElementById('authModal');
+const authInput = document.getElementById('authInput');
+const authSubmit = document.getElementById('authSubmit');
+const authCancel = document.getElementById('authCancel');
+const authMsg = document.getElementById('authMsg');
 
-  const itemPrize = document.getElementById('itemPrize');
-  const itemEndsAt = document.getElementById('itemEndsAt'); // datetime-local input
-  const itemWinners = document.getElementById('itemWinners');
-  const itemRequiredRole = document.getElementById('itemRequiredRole');
-  const addItemBtn = document.getElementById('addItemBtn');
-  const pendingItemsDiv = document.getElementById('pendingItems');
-  const createBtn = document.getElementById('createBtn');
-  const clearItemsBtn = document.getElementById('clearItemsBtn');
+function showAuth(msg) {
+  authMsg.textContent = msg || '';
+  authModal.classList.remove('hidden');
+  authModal.setAttribute('aria-hidden', 'false');
+  authInput.focus();
+}
+function hideAuth() {
+  authModal.classList.add('hidden');
+  authModal.setAttribute('aria-hidden', 'true');
+  authMsg.textContent = '';
+  authInput.value = '';
+}
 
-  const refreshBtn = document.getElementById('refreshBtn');
-  const showHistoryCheckbox = document.getElementById('showHistory');
+// local storage token key
+const TOKEN_KEY = 'pf_dashboard_token_v1';
 
-  const listArea = document.getElementById('listArea');
-  const logEl = document.getElementById('log');
+// validate stored token with server
+async function validateStoredToken(token) {
+  if (!token) return false;
+  try {
+    const res = await apiPOST('/api/auth/validate', { }, { token });
+    return res.ok && res.json && res.json.ok;
+  } catch (e) { return false; }
+}
 
-  let pendingItems = [];
-  let giveawaysCache = [];
-
-  function log(...args){
-    const t = new Date().toLocaleString();
-    logEl.textContent = '['+t+'] ' + args.join(' ') + "\\n" + logEl.textContent;
-    console.log(...args);
+// attempt auto auth (check localStorage)
+async function tryAutoAuth() {
+  const t = localStorage.getItem(TOKEN_KEY);
+  if (!t) return false;
+  const ok = await validateStoredToken(t).catch(()=>false);
+  if (ok) {
+    log('Auto-auth succeeded');
+    return true;
+  } else {
+    log('Auto-auth token invalid or expired');
+    localStorage.removeItem(TOKEN_KEY);
+    return false;
   }
+}
 
-  async function apiGET(path){
-    const r = await fetch(originBase + path);
-    if (!r.ok) throw new Error('status ' + r.status);
-    return r.json();
-  }
-  async function apiPOST(path, body){
-    const r = await fetch(originBase + path, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) });
-    if (!r.ok) {
-      const text = await r.text().catch(()=>null);
-      throw new Error('status ' + r.status + ' ' + (text || ''));
+// show modal and handle submit
+authSubmit.addEventListener('click', async () => {
+  const pw = authInput.value.trim();
+  if (!pw) { authMsg.textContent = 'Please enter password'; return; }
+  authMsg.textContent = 'Verifying...';
+  try {
+    const r = await apiPOST('/api/auth/verify', { password: pw });
+    if (r.ok && r.json && r.json.ok && r.json.token) {
+      const token = r.json.token;
+      localStorage.setItem(TOKEN_KEY, token);
+      hideAuth();
+      log('Authenticated');
+      // initialize app after auth
+      initAfterAuth();
+    } else {
+      authMsg.textContent = 'Invalid password';
     }
-    return r.json().catch(()=>null);
+  } catch (e) {
+    authMsg.textContent = 'Network error';
   }
-  async function apiDELETE(path){
-    const r = await fetch(originBase + path, { method:'DELETE' });
-    if (!r.ok) {
-      const text = await r.text().catch(()=>null);
-      throw new Error('status ' + r.status + ' ' + (text || ''));
-    }
-    return r.json().catch(()=>null);
-  }
+});
+authCancel.addEventListener('click', ()=> location.reload());
 
-  // load servers once on init
-  async function loadStatusAndServers(){
-    try {
-      const s = await apiGET('/api/status');
-      const guilds = s.guilds || [];
-      guildSelect.innerHTML = '';
-      if (!guilds.length) {
-        guildSelect.innerHTML = '<option value="">(no guilds)</option>';
-        channelSelect.innerHTML = '<option value="">-</option>';
-        roleSelect.innerHTML = '<option value="">-</option>';
-        itemRequiredRole.innerHTML = '<option value="">-</option>';
-        return;
-      }
-      guilds.forEach(g => {
-        const o = document.createElement('option');
-        o.value = g.id;
-        o.textContent = g.name || g.id;
-        guildSelect.appendChild(o);
-      });
-      guildSelect.selectedIndex = 0;
-      await onGuildChange();
-      log('Loaded servers from /api/status');
-    } catch (err) {
-      log('loadStatus error', err.message || err);
-      guildSelect.innerHTML = '<option value="">(error)</option>';
-    }
-  }
+// on page load: try auto auth; if fail show modal
+(async function authFlowStart(){
+  const ok = await tryAutoAuth();
+  if (!ok) showAuth('Enter dashboard password (check server console).');
+  else initAfterAuth();
+})();
 
-  async function onGuildChange(){
-    const gid = guildSelect.value;
-    if (!gid) return;
-    channelSelect.innerHTML = '<option>Loading...</option>';
-    roleSelect.innerHTML = '<option>Loading...</option>';
-    itemRequiredRole.innerHTML = '<option>Loading...</option>';
-    try {
-      const ch = await apiGET('/api/guilds/' + encodeURIComponent(gid) + '/channels');
-      channelSelect.innerHTML = '<option value="">-- select channel --</option>';
-      (ch.channels||[]).forEach(c => {
-        const o = document.createElement('option'); o.value = c.id; o.textContent = c.name + ' (' + c.id + ')'; channelSelect.appendChild(o);
-      });
-    } catch (err) {
-      log('fetch channels error', err.message || err);
-      channelSelect.innerHTML = '<option value="">(error)</option>';
-    }
-    try {
-      const r = await apiGET('/api/guilds/' + encodeURIComponent(gid) + '/roles');
-      roleSelect.innerHTML = '<option value="">-- none --</option>';
-      itemRequiredRole.innerHTML = '<option value="">Required role (optional)</option>';
-      (r.roles||[]).forEach(rr => {
-        const o = document.createElement('option'); o.value = rr.id; o.textContent = rr.name + ' (' + rr.id + ')'; roleSelect.appendChild(o);
-        const o2 = document.createElement('option'); o2.value = rr.id; o2.textContent = rr.name + ' (' + rr.id + ')'; itemRequiredRole.appendChild(o2);
-      });
-    } catch (err) {
-      log('fetch roles error', err.message || err);
-      roleSelect.innerHTML = '<option value="">(error)</option>';
-      itemRequiredRole.innerHTML = '<option value="">(error)</option>';
-    }
-  }
+// --------------- rest of original dashboard code ---------------
+// DOM elements & helpers (copied/adapted from previous index.html)
+const guildSelect = document.getElementById('guildSelect');
+const channelSelect = document.getElementById('channelSelect');
+const roleSelect = document.getElementById('roleSelect');
+const aioEl = document.getElementById('aio');
 
-  guildSelect.addEventListener('change', onGuildChange);
-  refreshBtn.addEventListener('click', loadGiveaways);
+const itemPrize = document.getElementById('itemPrize');
+const itemEndsAt = document.getElementById('itemEndsAt');
+const itemWinners = document.getElementById('itemWinners');
+const itemRequiredRole = document.getElementById('itemRequiredRole');
+const addItemBtn = document.getElementById('addItemBtn');
+const pendingItemsDiv = document.getElementById('pendingItems');
+const createBtn = document.getElementById('createBtn');
+const clearItemsBtn = document.getElementById('clearItemsBtn');
 
-  // pending items builder (uses endsAt datetime-local)
-  function renderPendingItems(){
-    pendingItemsDiv.innerHTML = '';
-    if (!pendingItems.length) { pendingItemsDiv.innerHTML = '<div class="small muted">No items added</div>'; return; }
-    pendingItems.forEach((it, idx) => {
-      const d = document.createElement('div');
-      d.className = 'item';
-      const endsText = it.endsAt ? (new Date(it.endsAt)).toLocaleString() : '(no end)';
-      d.innerHTML = `<div><strong>${escapeHtml(it.prize)}</strong><div class="meta">Ends: ${escapeHtml(endsText)} • Winners: ${it.winnersCount} • Role: ${it.requiredRole||'(none)'}</div></div>`;
-      const right = document.createElement('div');
-      const del = document.createElement('button'); del.className = 'ghost'; del.textContent = 'Remove';
-      del.onclick = ()=> { pendingItems.splice(idx,1); renderPendingItems(); };
-      right.appendChild(del);
-      d.appendChild(right);
-      pendingItemsDiv.appendChild(d);
-    });
-  }
+const refreshBtn = document.getElementById('refreshBtn');
+const showHistoryCheckbox = document.getElementById('showHistory');
 
-  addItemBtn.addEventListener('click', ()=>{
-    const prize = (itemPrize.value||'').trim();
-    const endsVal = itemEndsAt.value; // datetime-local string like "2025-09-21T12:34"
-    const winners = Number(itemWinners.value) || 1;
-    const req = itemRequiredRole.value || null;
-    if (!prize) { alert('Enter prize'); return; }
-    if (!endsVal) { alert('Select end date/time'); return; }
-    const millis = new Date(endsVal).getTime();
-    if (isNaN(millis) || millis <= Date.now()) { if(!confirm('Selected time is in the past or invalid. Create anyway?')) return; }
-    pendingItems.push({ prize, endsAt: millis, winnersCount: winners, requiredRole: req });
-    itemPrize.value = ''; itemEndsAt.value=''; itemWinners.value='1'; itemRequiredRole.value='';
-    renderPendingItems();
-  });
-  clearItemsBtn.addEventListener('click', ()=> { pendingItems = []; renderPendingItems(); });
+const listArea = document.getElementById('listArea');
+const logEl = document.getElementById('log');
 
-  createBtn.addEventListener('click', async ()=>{
-    const gid = guildSelect.value;
-    const ch = channelSelect.value;
-    if (!gid || !ch) { alert('Select server and channel'); return; }
-    if (!pendingItems.length) { alert('Add at least one item'); return; }
-    const items = pendingItems.map(it => ({ prize: it.prize, endsAt: it.endsAt, winnersCount: it.winnersCount, requiredRole: it.requiredRole }));
-    const body = { guildId: gid, channelId: ch, hostId: null, isAllInOne: !!aioEl.checked, items };
-    try {
-      const res = await apiPOST('/api/giveaways', body);
-      log('Created giveaway', res && res.giveaway && res.giveaway.id);
-      pendingItems = []; renderPendingItems();
-      alert('Giveaway created. Press Refresh to see it in list.');
-    } catch (err) {
-      log('create error', err.message || err);
-      alert('Create failed (see console).');
-    }
-  });
+let pendingItems = [];
+let giveawaysCache = [];
 
-  // load giveaways (manual only)
-  async function loadGiveaways(){
-    listArea.innerHTML = '<div class="small">Loading giveaways...</div>';
-    try {
-      const res = await apiGET('/api/giveaways');
-      giveawaysCache = res.giveaways || [];
-      renderGiveaways(giveawaysCache);
-      log('Loaded', giveawaysCache.length, 'giveaways');
-    } catch (err) {
-      listArea.innerHTML = '<div class="small">Failed to load giveaways</div>';
-      log('loadGiveaways error', err.message || err);
-    }
-  }
+function tokenHeader() { return localStorage.getItem(TOKEN_KEY) || null; }
 
-  function renderGiveaways(list){
-    const active = [];
-    const history = [];
-    (list || []).forEach(gw => {
-      const hasActiveItem = (gw.items || []).some(it => !it.ended);
-      if (hasActiveItem) active.push(gw); else history.push(gw);
-    });
+function log(...args){
+  const t = new Date().toLocaleString();
+  logEl.textContent = '['+t+'] ' + args.join(' ') + "\\n" + logEl.textContent;
+  console.log(...args);
+}
 
-    const showHistory = !!showHistoryCheckbox.checked;
+// wrappers that include token automatically
+async function apiGETAuth(path){
+  return apiGET(path, { token: tokenHeader() });
+}
+async function apiPOSTAuth(path, body){
+  return apiPOST(path, body, { token: tokenHeader() });
+}
+async function apiDELETEAuth(path){
+  return fetch(path, { method:'DELETE', headers: { 'x-dashboard-token': tokenHeader() } }).then(async r => ({ ok: r.ok, status: r.status, text: await r.text().catch(()=>null) })).catch(e=>({ ok:false, err:e }));
+}
 
-    if (!active.length && !showHistory) {
-      listArea.innerHTML = '<div class="small muted">No active giveaways. Toggle "Show history" to view past giveaways.</div>';
+// init after auth
+async function initAfterAuth(){
+  hideAuth(); // ensure
+  await loadStatusAndServers();
+  startCountdownLoop();
+  log('Ready. Press Refresh to load giveaways.');
+}
+
+// load servers
+async function loadStatusAndServers(){
+  try {
+    const s = await apiGETAuth('/api/status');
+    if (!s.ok) throw new Error('failed');
+    const guilds = s.json.guilds || [];
+    guildSelect.innerHTML = '';
+    if (!guilds.length) {
+      guildSelect.innerHTML = '<option value="">(no guilds)</option>';
+      channelSelect.innerHTML = '<option value="">-</option>';
+      roleSelect.innerHTML = '<option value="">-</option>';
+      itemRequiredRole.innerHTML = '<option value="">-</option>';
       return;
     }
-
-    listArea.innerHTML = '';
-
-    if (active.length) {
-      const head = document.createElement('div'); head.className = 'small'; head.textContent = 'Active giveaways';
-      listArea.appendChild(head);
-      active.forEach(gw => listArea.appendChild(renderOneGiveawayElement(gw)));
-    } else {
-      const none = document.createElement('div'); none.className = 'small muted'; none.textContent = 'No active giveaways';
-      listArea.appendChild(none);
-    }
-
-    if (showHistory) {
-      const sep = document.createElement('hr'); sep.style.border = 'none'; sep.style.height = '10px';
-      listArea.appendChild(sep);
-      const head2 = document.createElement('div'); head2.className = 'small'; head2.textContent = 'History (ended giveaways)';
-      listArea.appendChild(head2);
-      if (history.length) history.forEach(gw => listArea.appendChild(renderOneGiveawayElement(gw)));
-      else { const none2 = document.createElement('div'); none2.className = 'small muted'; none2.textContent = 'No past giveaways'; listArea.appendChild(none2); }
-    }
-  }
-
-  function renderOneGiveawayElement(gw){
-    const gwEl = document.createElement('div'); gwEl.className = 'gw';
-    const left = document.createElement('div'); left.className = 'left';
-    left.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center">
-      <div><strong>${escapeHtml(gw.id)}</strong><div class="meta">${escapeHtml(gw.guildId||'')} • ${escapeHtml(gw.channelId||'')}</div></div>
-      <div class="meta">Key: <span style="font-family:monospace">${escapeHtml(gw.serverPublicKey||'')}</span></div>
-    </div>`;
-
-    const itemsWrap = document.createElement('div'); itemsWrap.className = 'items';
-    (gw.items || []).forEach(it => {
-      const itDiv = document.createElement('div'); itDiv.className = 'item';
-      const leftPart = document.createElement('div');
-      leftPart.innerHTML = `<div><strong>${escapeHtml(it.prize)}</strong> <div class="meta">(${escapeHtml(it.id)})</div></div>`;
-      const ends = it.endsAt ? new Date(it.endsAt).toLocaleString() : 'N/A';
-      const statusId = 'st_' + gw.id + '_' + it.id;
-      leftPart.innerHTML += `<div class="small">Ends: <span class="meta">${ends}</span> • Entries: <span class="meta">${(it.entries||[]).length}</span> • <span id="${statusId}" class="status ${statusClass(it)}">${it.ended ? 'ENDED' : (it.awaitingClientSeed ? 'FETCHING' : 'COUNTDOWN')}</span></div>`;
-
-      const rightPart = document.createElement('div');
-      rightPart.style.display='flex'; rightPart.style.gap='8px';
-      const rerollBtn = document.createElement('button'); rerollBtn.className='btn reroll'; rerollBtn.textContent='Reroll';
-      rerollBtn.onclick = ()=> onReroll(gw.id, it.id);
-      const forceBtn = document.createElement('button'); forceBtn.className='btn forceend'; forceBtn.textContent='Force End';
-      forceBtn.onclick = ()=> onForceEnd(gw.id);
-      const delBtn = document.createElement('button'); delBtn.className='btn delete'; delBtn.textContent='Delete';
-      delBtn.onclick = ()=> onDelete(gw.id);
-      rightPart.appendChild(rerollBtn); rightPart.appendChild(forceBtn); rightPart.appendChild(delBtn);
-
-      itDiv.appendChild(leftPart); itDiv.appendChild(rightPart);
-      itemsWrap.appendChild(itDiv);
+    guilds.forEach(g => {
+      const o = document.createElement('option');
+      o.value = g.id;
+      o.textContent = g.name || g.id;
+      guildSelect.appendChild(o);
     });
+    guildSelect.selectedIndex = 0;
+    await onGuildChange();
+    log('Loaded servers from /api/status');
+  } catch (err) {
+    log('loadStatus error', err && (err.message || err));
+    guildSelect.innerHTML = '<option value="">(error)</option>';
+  }
+}
 
-    left.appendChild(itemsWrap);
-    gwEl.appendChild(left);
+async function onGuildChange(){
+  const gid = guildSelect.value;
+  if (!gid) return;
+  channelSelect.innerHTML = '<option>Loading...</option>';
+  roleSelect.innerHTML = '<option>Loading...</option>';
+  itemRequiredRole.innerHTML = '<option>Loading...</option>';
+  try {
+    const ch = await apiGETAuth('/api/guilds/' + encodeURIComponent(gid) + '/channels');
+    if (!ch.ok) throw new Error('channels failed');
+    channelSelect.innerHTML = '<option value="">-- select channel --</option>';
+    (ch.json.channels||[]).forEach(c => {
+      const o = document.createElement('option'); o.value = c.id; o.textContent = c.name + ' (' + c.id + ')'; channelSelect.appendChild(o);
+    });
+  } catch (err) {
+    log('fetch channels error', err && (err.message || err));
+    channelSelect.innerHTML = '<option value="">(error)</option>';
+  }
+  try {
+    const r = await apiGETAuth('/api/guilds/' + encodeURIComponent(gid) + '/roles');
+    if (!r.ok) throw new Error('roles failed');
+    roleSelect.innerHTML = '<option value="">-- none --</option>';
+    itemRequiredRole.innerHTML = '<option value="">Required role (optional)</option>';
+    (r.json.roles||[]).forEach(rr => {
+      const o = document.createElement('option'); o.value = rr.id; o.textContent = rr.name + ' (' + rr.id + ')'; roleSelect.appendChild(o);
+      const o2 = document.createElement('option'); o2.value = rr.id; o2.textContent = rr.name + ' (' + rr.id + ')'; itemRequiredRole.appendChild(o2);
+    });
+  } catch (err) {
+    log('fetch roles error', err && (err.message || err));
+    roleSelect.innerHTML = '<option value="">(error)</option>';
+    itemRequiredRole.innerHTML = '<option value="">(error)</option>';
+  }
+}
 
-    const right = document.createElement('div'); right.style.display='flex'; right.style.flexDirection='column'; right.style.gap='8px';
-    const refreshBtnLocal = document.createElement('button'); refreshBtnLocal.className='ghost'; refreshBtnLocal.textContent='Refresh'; refreshBtnLocal.onclick = ()=> loadGiveaways();
-    right.appendChild(refreshBtnLocal);
-    gwEl.appendChild(right);
+guildSelect.addEventListener('change', onGuildChange);
+refreshBtn.addEventListener('click', loadGiveaways);
 
-    return gwEl;
+// pending items builder & create logic
+function renderPendingItems(){
+  pendingItemsDiv.innerHTML = '';
+  if (!pendingItems.length) { pendingItemsDiv.innerHTML = '<div class="small muted">No items added</div>'; return; }
+  pendingItems.forEach((it, idx) => {
+    const d = document.createElement('div');
+    d.className = 'item';
+    const endsText = it.endsAt ? (new Date(it.endsAt)).toLocaleString() : '(no end)';
+    d.innerHTML = `<div><strong>${escapeHtml(it.prize)}</strong><div class="meta">Ends: ${escapeHtml(endsText)} • Winners: ${it.winnersCount} • Role: ${it.requiredRole||'(none)'}</div></div>`;
+    const right = document.createElement('div');
+    const del = document.createElement('button'); del.className = 'ghost'; del.textContent = 'Remove';
+    del.onclick = ()=> { pendingItems.splice(idx,1); renderPendingItems(); };
+    right.appendChild(del);
+    d.appendChild(right);
+    pendingItemsDiv.appendChild(d);
+  });
+}
+
+addItemBtn.addEventListener('click', ()=>{
+  const prize = (itemPrize.value||'').trim();
+  const endsVal = itemEndsAt.value;
+  const winners = Number(itemWinners.value) || 1;
+  const req = itemRequiredRole.value || null;
+  if (!prize) { alert('Enter prize'); return; }
+  if (!endsVal) { alert('Select end date/time'); return; }
+  const millis = new Date(endsVal).getTime();
+  if (isNaN(millis) || millis <= Date.now()) { if(!confirm('Selected time is in the past or invalid. Create anyway?')) return; }
+  pendingItems.push({ prize, endsAt: millis, winnersCount: winners, requiredRole: req });
+  itemPrize.value = ''; itemEndsAt.value=''; itemWinners.value='1'; itemRequiredRole.value='';
+  renderPendingItems();
+});
+clearItemsBtn.addEventListener('click', ()=> { pendingItems = []; renderPendingItems(); });
+
+createBtn.addEventListener('click', async ()=>{
+  const gid = guildSelect.value;
+  const ch = channelSelect.value;
+  if (!gid || !ch) { alert('Select server and channel'); return; }
+  if (!pendingItems.length) { alert('Add at least one item'); return; }
+  const items = pendingItems.map(it => ({ prize: it.prize, endsAt: it.endsAt, winnersCount: it.winnersCount, requiredRole: it.requiredRole }));
+  try {
+    const res = await apiPOSTAuth('/api/giveaways', { guildId: gid, channelId: ch, hostId: null, isAllInOne: !!aioEl.checked, items });
+    if (!res.ok) throw new Error('create failed');
+    log('Created giveaway', res.json && res.json.giveaway && res.json.giveaway.id);
+    pendingItems = []; renderPendingItems();
+    alert('Giveaway created. Press Refresh to see it in list.');
+  } catch (err) {
+    log('create error', err && (err.message || err));
+    alert('Create failed (see console).');
+  }
+});
+
+// load giveaways
+async function loadGiveaways(){
+  listArea.innerHTML = '<div class="small">Loading giveaways...</div>';
+  try {
+    const res = await apiGETAuth('/api/giveaways');
+    if (!res.ok) throw new Error('load failed');
+    giveawaysCache = res.json.giveaways || [];
+    renderGiveaways(giveawaysCache);
+    log('Loaded', giveawaysCache.length, 'giveaways');
+  } catch (err) {
+    listArea.innerHTML = '<div class="small">Failed to load giveaways</div>';
+    log('loadGiveaways error', err && (err.message || err));
+  }
+}
+
+function renderGiveaways(list){
+  const active = [];
+  const history = [];
+  (list || []).forEach(gw => {
+    const hasActiveItem = (gw.items || []).some(it => !it.ended);
+    if (hasActiveItem) active.push(gw); else history.push(gw);
+  });
+
+  const showHistory = !!showHistoryCheckbox.checked;
+
+  if (!active.length && !showHistory) {
+    listArea.innerHTML = '<div class="small muted">No active giveaways. Toggle "Show history" to view past giveaways.</div>';
+    return;
   }
 
-  function statusClass(item){
-    if (item.ended) return 's-ended';
-    if (item.awaitingClientSeed) return 's-fetch';
-    return 's-countdown';
+  listArea.innerHTML = '';
+
+  if (active.length) {
+    const head = document.createElement('div'); head.className = 'small'; head.textContent = 'Active giveaways';
+    listArea.appendChild(head);
+    active.forEach(gw => listArea.appendChild(renderOneGiveawayElement(gw)));
+  } else {
+    const none = document.createElement('div'); none.className = 'small muted'; none.textContent = 'No active giveaways';
+    listArea.appendChild(none);
   }
 
-  // live update for visible statuses
-  let countdownTimer = null;
-  function startCountdownLoop(){
-    if (countdownTimer) return;
-    countdownTimer = setInterval(()=> {
-      giveawaysCache.forEach(gw => {
-        (gw.items||[]).forEach(it => {
-          const id = 'st_' + gw.id + '_' + it.id;
-          const el = document.getElementById(id);
-          if (!el) return;
-          if (it.ended) { el.textContent = 'ENDED'; el.className = 'status s-ended'; return; }
-          if (it.awaitingClientSeed) { el.textContent = 'FETCHING'; el.className = 'status s-fetch'; return; }
-          const rem = (it.endsAt || 0) - Date.now();
-          if (rem <= 0) { el.textContent = 'Finalizing'; el.className = 'status s-fetch'; return; }
-          el.textContent = formatRemaining(rem); el.className = 'status s-countdown';
-        });
+  if (showHistory) {
+    const sep = document.createElement('hr'); sep.style.border = 'none'; sep.style.height = '10px';
+    listArea.appendChild(sep);
+    const head2 = document.createElement('div'); head2.className = 'small'; head2.textContent = 'History (ended giveaways)';
+    listArea.appendChild(head2);
+    if (history.length) history.forEach(gw => listArea.appendChild(renderOneGiveawayElement(gw)));
+    else { const none2 = document.createElement('div'); none2.className = 'small muted'; none2.textContent = 'No past giveaways'; listArea.appendChild(none2); }
+  }
+}
+
+function renderOneGiveawayElement(gw){
+  const gwEl = document.createElement('div'); gwEl.className = 'gw';
+  const left = document.createElement('div'); left.className = 'left';
+  left.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center">
+    <div><strong>${escapeHtml(gw.id)}</strong><div class="meta">${escapeHtml(gw.guildId||'')} • ${escapeHtml(gw.channelId||'')}</div></div>
+    <div class="meta">Key: <span style="font-family:monospace">${escapeHtml(gw.serverPublicKey||'')}</span></div>
+  </div>`;
+
+  const itemsWrap = document.createElement('div'); itemsWrap.className = 'items';
+  (gw.items || []).forEach(it => {
+    const itDiv = document.createElement('div'); itDiv.className = 'item';
+    const leftPart = document.createElement('div');
+    leftPart.innerHTML = `<div><strong>${escapeHtml(it.prize)}</strong> <div class="meta">(${escapeHtml(it.id)})</div></div>`;
+    const ends = it.endsAt ? new Date(it.endsAt).toLocaleString() : 'N/A';
+    const statusId = 'st_' + gw.id + '_' + it.id;
+    leftPart.innerHTML += `<div class="small">Ends: <span class="meta">${ends}</span> • Entries: <span class="meta">${(it.entries||[]).length}</span> • <span id="${statusId}" class="status ${statusClass(it)}">${it.ended ? 'ENDED' : (it.awaitingClientSeed ? 'FETCHING' : 'COUNTDOWN')}</span></div>`;
+
+    const rightPart = document.createElement('div');
+    rightPart.style.display='flex'; rightPart.style.gap='8px';
+    const rerollBtn = document.createElement('button'); rerollBtn.className='btn reroll'; rerollBtn.textContent='Reroll';
+    rerollBtn.onclick = ()=> onReroll(gw.id, it.id);
+    const forceBtn = document.createElement('button'); forceBtn.className='btn forceend'; forceBtn.textContent='Force End';
+    forceBtn.onclick = ()=> onForceEnd(gw.id);
+    const delBtn = document.createElement('button'); delBtn.className='btn delete'; delBtn.textContent='Delete';
+    delBtn.onclick = ()=> onDelete(gw.id);
+    rightPart.appendChild(rerollBtn); rightPart.appendChild(forceBtn); rightPart.appendChild(delBtn);
+
+    itDiv.appendChild(leftPart); itDiv.appendChild(rightPart);
+    itemsWrap.appendChild(itDiv);
+  });
+
+  left.appendChild(itemsWrap);
+  gwEl.appendChild(left);
+
+  const right = document.createElement('div'); right.style.display='flex'; right.style.flexDirection='column'; right.style.gap='8px';
+  const refreshBtnLocal = document.createElement('button'); refreshBtnLocal.className='ghost'; refreshBtnLocal.textContent='Refresh'; refreshBtnLocal.onclick = ()=> loadGiveaways();
+  right.appendChild(refreshBtnLocal);
+  gwEl.appendChild(right);
+
+  return gwEl;
+}
+
+function statusClass(item){
+  if (item.ended) return 's-ended';
+  if (item.awaitingClientSeed) return 's-fetch';
+  return 's-countdown';
+}
+
+// countdown updates
+let countdownTimer = null;
+function startCountdownLoop(){
+  if (countdownTimer) return;
+  countdownTimer = setInterval(()=> {
+    giveawaysCache.forEach(gw => {
+      (gw.items||[]).forEach(it => {
+        const id = 'st_' + gw.id + '_' + it.id;
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (it.ended) { el.textContent = 'ENDED'; el.className = 'status s-ended'; return; }
+        if (it.awaitingClientSeed) { el.textContent = 'FETCHING'; el.className = 'status s-fetch'; return; }
+        const rem = (it.endsAt || 0) - Date.now();
+        if (rem <= 0) { el.textContent = 'Finalizing'; el.className = 'status s-fetch'; return; }
+        el.textContent = formatRemaining(rem); el.className = 'status s-countdown';
       });
-    }, 1000);
+    });
+  }, 1000);
+}
+
+function formatRemaining(ms){
+  if (ms<=0) return '0s';
+  const s=Math.floor(ms/1000), d=Math.floor(s/86400), h=Math.floor((s%86400)/3600), m=Math.floor((s%3600)/60), sec=s%60;
+  if (d>0) return `${d}d ${h}h ${m}m`; if (h>0) return `${h}h ${m}m ${sec}s`; if (m>0) return `${m}m ${sec}s`; return `${sec}s`;
+}
+
+// actions
+async function onReroll(gwId, itemId){
+  if (!confirm('Confirm Reroll: this will reset clientSeed & client block for this prize, and re-fetch new block per provably-fair.')) return;
+  try {
+    const res = await apiPOSTAuth('/api/giveaways/' + encodeURIComponent(gwId) + '/reroll', { itemId, reset: true });
+    if(!res.ok) throw new Error('reroll failed');
+    log('Reroll initiated', res.json);
+    alert('Reroll requested. Press Refresh after some seconds to see result.');
+  } catch (err) {
+    log('Reroll error', err && (err.message || err));
+    alert('Reroll failed (see console)');
   }
+}
 
-  function formatRemaining(ms){
-    if (ms<=0) return '0s';
-    const s=Math.floor(ms/1000), d=Math.floor(s/86400), h=Math.floor((s%86400)/3600), m=Math.floor((s%3600)/60), sec=s%60;
-    if (d>0) return `${d}d ${h}h ${m}m`; if (h>0) return `${h}h ${m}m ${sec}s`; if (m>0) return `${m}m ${sec}s`; return `${sec}s`;
+async function onForceEnd(gwId){
+  if (!confirm('Force end giveaway?')) return;
+  try {
+    const res = await apiPOSTAuth('/api/giveaways/' + encodeURIComponent(gwId) + '/force-end', {});
+    if(!res.ok) throw new Error('force failed');
+    log('Force-end result', res.json);
+    alert('Force-end requested. Press Refresh to update list.');
+  } catch (err) {
+    log('Force-end error', err && (err.message || err));
+    alert('Force-end failed (see console)');
   }
+}
 
-  // actions
-  async function onReroll(gwId, itemId){
-    if (!confirm('Confirm Reroll: this will reset clientSeed & client block for this prize, and re-fetch new block per provably-fair.')) return;
-    try {
-      const res = await apiPOST('/api/giveaways/' + encodeURIComponent(gwId) + '/reroll', { itemId, reset: true });
-      log('Reroll initiated', res);
-      alert('Reroll requested. Press Refresh after some seconds to see result.');
-    } catch (err) {
-      log('Reroll error', err.message || err);
-      alert('Reroll failed (see console)');
-    }
+async function onDelete(gwId){
+  if (!confirm('Delete giveaway? This will remove it from storage and attempt to delete message.')) return;
+  try {
+    const res = await apiDELETEAuth('/api/giveaways/' + encodeURIComponent(gwId));
+    if(!res.ok) throw new Error('delete failed');
+    log('Delete result', res);
+    alert('Delete done. Press Refresh to update list.');
+  } catch (err) {
+    log('Delete error', err && (err.message || err));
+    alert('Delete failed (see console)');
   }
+}
 
-  async function onForceEnd(gwId){
-    if (!confirm('Force end giveaway?')) return;
-    try {
-      const res = await apiPOST('/api/giveaways/' + encodeURIComponent(gwId) + '/force-end', {});
-      log('Force-end result', res);
-      alert('Force-end requested. Press Refresh to update list.');
-    } catch (err) {
-      log('Force-end error', err.message || err);
-      alert('Force-end failed (see console)');
-    }
-  }
+// helpers
+function escapeHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
-  async function onDelete(gwId){
-    if (!confirm('Delete giveaway? This will remove it from storage and attempt to delete message.')) return;
-    try {
-      const res = await apiDELETE('/api/giveaways/' + encodeURIComponent(gwId));
-      log('Delete result', res);
-      alert('Delete done. Press Refresh to update list.');
-    } catch (err) {
-      log('Delete error', err.message || err);
-      alert('Delete failed (see console)');
-    }
-  }
-
-  // helpers
-  function escapeHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-
-  // init
-  (async function init(){
-    await loadStatusAndServers();
-    startCountdownLoop();
-    log('Ready. Press Refresh to load giveaways.');
-  })();
-
-})();
+// done
 </script>
 </body>
 </html>
