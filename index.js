@@ -878,4 +878,3 @@ if (!process.env.BOT_TOKEN) {
   process.exit(1);
 }
 client.login(process.env.BOT_TOKEN).catch(err => { console.error('Login failed', err && (err.stack || err.message || err)); process.exit(1); });
-
